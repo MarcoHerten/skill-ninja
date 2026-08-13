@@ -4,7 +4,7 @@
 // repo/URL), run the lightweight safety check, show a diff against any existing
 // version, place the Skill in the **canonical store**, link it into the chosen
 // agent roots (resolving tool asymmetry), stamp version / provenance / content
-// hash (ADR-0005), and commit if the store is a git repo. The skill layer
+// hash (ADR-0005), and commit + push to the private remote (ADR-0007). The skill layer
 // (SKILL.md) frames the human approval of safety findings; the engine never
 // blocks on a finding — it only reports.
 //
@@ -171,7 +171,10 @@ function stampFrontmatter(stamps, body) {
   return fm + body;
 }
 
-// --- git commit (if the store is a git repo) ---------------------------------
+// --- git commit + push (ADR-0007) -------------------------------------------
+// The canonical store is a git repo with an optional private remote. `add`
+// commits the new skill AND pushes it to the remote when one is configured;
+// with no remote it commits locally and skips push silently.
 
 function isGitRepo(dir) {
   try {
@@ -179,6 +182,17 @@ function isGitRepo(dir) {
     return true;
   } catch {
     return false;
+  }
+}
+
+// The first configured remote name (typically "origin"), or null if none.
+function firstRemote(store) {
+  try {
+    const out = execFileSync("git", ["-C", store, "remote"], { encoding: "utf8" });
+    const name = out.split(/\r?\n/).map((s) => s.trim()).find(Boolean);
+    return name || null;
+  } catch {
+    return null;
   }
 }
 
@@ -194,6 +208,20 @@ function tryCommit(store, name) {
     return true;
   } catch {
     return false; // nothing to commit, or a hook rejected it — skip silently
+  }
+}
+
+// Push the just-committed skill to the private remote. Sets upstream on the
+// first push so a freshly-init'd store pushes without extra setup. Skipped
+// silently (returns false) when no remote is configured or the push fails.
+function tryPush(store) {
+  const remote = firstRemote(store);
+  if (!remote) return false;
+  try {
+    execFileSync("git", ["-C", store, "push", "-q", "-u", remote, "HEAD"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -312,14 +340,17 @@ export async function addCommand(args) {
     linked.push(`${link} (${key})`);
   }
 
-  // 5. Commit if the store is a git repo (no push — that is a separate step).
+  // 5. Commit + push (ADR-0007): commit the skill, then push to the private
+  //    remote if one is configured (skipped silently otherwise).
   const committed = tryCommit(store, resolved.name);
+  const pushed = committed ? tryPush(store) : false;
 
   // 6. Summary.
   out.write(`\nAdded skill '${resolved.name}' (version ${version}) to ${storedFile}.\n`);
   out.write(linked.length ? `Linked into: ${linked.join(", ")}.\n` : "Linked into: (no agent roots).\n");
   out.write(`Content hash: ${incomingHash}\n`);
   if (committed) out.write(`Committed to ${store}.\n`);
+  if (pushed) out.write(`Pushed to the private remote.\n`);
 
   return 0;
 }

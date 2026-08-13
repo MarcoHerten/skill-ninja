@@ -210,7 +210,7 @@ test("add accepts a repo source by cloning it (offline via a local git repo)", a
 });
 
 // Slice G — when the canonical store is a git repo, the addition is committed
-// locally (no push). Verified via `git -C <store> log`.
+// locally. With no remote configured, push is skipped silently (ADR-0007).
 test("add commits the skill when the canonical store is a git repo", async () => {
   const sb = await createSandbox();
   try {
@@ -270,3 +270,35 @@ test("add accepts a bare prompt as the source via --prompt", async () => {
     await sb.cleanup();
   }
 });
+
+// Slice J — ADR-0007: when the store has a private remote configured, `add`
+// commits AND pushes. Tested offline by pointing the remote at a local bare repo.
+test("add pushes to the private remote when one is configured", async () => {
+  const sb = await createSandbox();
+  try {
+    const store = makeStoreGitRepo(sb.home); // store is a git repo
+    // A local bare repo stands in for the private GitHub remote.
+    const bareRemote = join(sb.home, "remote.git");
+    execFileSync("git", ["init", "--bare", "-q", bareRemote], { stdio: "ignore" });
+    execFileSync("git", ["-C", store, "remote", "add", "origin", bareRemote], { stdio: "ignore" });
+
+    const planted = await plantSkill(sb.home, "incoming/pushme", { body: "# Push me\n" });
+
+    const { stdout, exitCode } = await runCli(sb.home, ["add", planted.dir]);
+    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+
+    // The skill was committed + pushed; stdout reports both.
+    assert.match(stdout, /Committed/, `expected a commit notice, got:\n${stdout}`);
+    assert.match(stdout, /Pushed/, `expected a push notice, got:\n${stdout}`);
+
+    // The bare remote received the commit (verified across all refs — the branch
+    // name is the local default, whatever git's init.defaultBranch is).
+    const remoteLog = execFileSync("git", ["-C", bareRemote, "log", "--all", "--format=%s"], {
+      encoding: "utf8",
+    });
+    assert.match(remoteLog, /pushme/, `expected the skill commit pushed to the remote, got:\n${remoteLog}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
