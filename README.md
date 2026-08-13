@@ -22,7 +22,7 @@ Your **personal** skills live in a **local canonical store** — a git repo with
 
 ## Status
 
-🚧 **Early — v1.0 command surface implemented; architecture sharpened.** Installation is delegated to skills.sh ([ADR-0007](./docs/adr/0007-skills-sh-installs-skill-ninja-audits.md)); `init` bootstraps configuration ([ADR-0008](./docs/adr/0008-init-bootstraps-config-and-discovers.md)). The engine is being realigned to these decisions. See [`SPEC.md`](./SPEC.md), [`CONTEXT.md`](./CONTEXT.md), and [`docs/adr/`](./docs/adr).
+🚧 **Early — v1.0 command surface implemented; architecture realigned.** Installation is delegated to skills.sh ([ADR-0007](./docs/adr/0007-skills-sh-installs-skill-ninja-audits.md)); `init` bootstraps configuration ([ADR-0008](./docs/adr/0008-init-bootstraps-config-and-discovers.md)); `add` commits and pushes; duplicate detection is by name + content hash. The skill is invoked as `/ninja` (e.g. `/ninja init`). See [`SPEC.md`](./SPEC.md), [`CONTEXT.md`](./CONTEXT.md), and [`docs/adr/`](./docs/adr).
 
 ## Install
 

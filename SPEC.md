@@ -1,7 +1,7 @@
 # Skill Ninja — v1.0 Specification
 
 > Vocabulary: see [`CONTEXT.md`](./CONTEXT.md) (Skill, Skill Ninja, Provenance, the tiers, Agent root, Tool asymmetry).
-> Status: v1.0 command surface implemented; architecture sharpened — installation delegated to skills.sh (ADR-0007), `init` bootstraps configuration (ADR-0008). The engine is being realigned to these decisions.
+> Status: v1.0 command surface implemented and realigned to the sharpened architecture — installation delegated to skills.sh (ADR-0007), `init` bootstraps configuration (ADR-0008). The skill is invoked as `/ninja` (e.g. `/ninja init`).
 
 ## Problem Statement
 
