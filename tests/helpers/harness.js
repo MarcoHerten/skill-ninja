@@ -19,11 +19,21 @@ export const ENGINE_PATH = fileURLToPath(
 // The agent-root model: which subdirectory under $HOME each supported coding
 // agent reads skills from. This mirrors the engine's documented model
 // (skills/skill-ninja/engine/agents.js) — kept as a local copy here so the test
-// stays a black box. See CONTEXT.md: Agent root, Tool asymmetry.
+// stays a black box. See CONTEXT.md: Agent root, Tool asymmetry. ADR-0008: the
+// map follows skills.sh's global-root conventions and is existence-probed.
 const AGENT_ROOTS = {
   claude: ".claude/skills",
+  codex: ".codex/skills",
+  cursor: ".cursor/skills",
+  gemini: ".gemini/skills",
+  copilot: ".copilot/skills",
+  windsurf: ".codeium/windsurf/skills",
+  roo: ".roo/skills",
+  trae: ".trae/skills",
   zcode: ".zcode/skills",
-  generic: ".agents/skills",
+  agents: ".agents/skills",
+  opencode: ".config/opencode/skills",
+  goose: ".config/goose/skills",
 };
 
 // Default config planted when a test does not supply one. Paths use the `~`

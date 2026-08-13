@@ -13,11 +13,21 @@
 // Tool asymmetry; the tiers.)
 
 // Human-friendly scan-root labels. Configured agent keys map to product names;
-// a vault or project scan root shows its kind + absolute path.
+// a vault or project scan root shows its kind + absolute path. Labels mirror the
+// agent families in engine/agents.js (skills.sh's conventions, ADR-0007/0008).
 const AGENT_LABELS = {
   claude: "Claude root",
+  codex: "Codex root",
+  cursor: "Cursor root",
+  gemini: "Gemini root",
+  copilot: "Copilot root",
+  windsurf: "Windsurf root",
+  roo: "Roo root",
+  trae: "Trae root",
   zcode: "ZCode root",
-  generic: "agents root",
+  agents: "agents root",
+  opencode: "Opencode root",
+  goose: "Goose root",
 };
 
 /**

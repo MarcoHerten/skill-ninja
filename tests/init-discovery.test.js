@@ -174,3 +174,37 @@ test("init is idempotent: re-running reflects the current landscape", async () =
     await sb.cleanup();
   }
 });
+
+// ADR-0008 — the agent-root map follows skills.sh's conventions (not just the
+// original 3). A skill in a `.codex/skills` root is discovered and tagged with
+// the codex scan root, proving the expanded map resolves end-to-end.
+test("init discovers skills in an expanded agent root (codex) via skills.sh conventions", async () => {
+  const sb = await createSandbox({
+    config: {
+      store: "~/.skill-ninja/store",
+      agents: ["codex"],
+      vaults: [],
+      projects: [],
+    },
+  });
+  try {
+    await plantSkill(sb.home, ".codex/skills/codex-skill");
+
+    const { exitCode } = await runCli(sb.home, ["init"]);
+    assert.equal(exitCode, 0);
+
+    const cache = await readInventory(sb.home);
+    const found = cache.skills.find((s) => s.name === "codex-skill");
+    assert.ok(found, `expected codex-skill, got:\n${JSON.stringify(cache.skills)}`);
+    assert.equal(found.scanRoot.kind, "agent");
+    assert.equal(found.scanRoot.ref, "codex");
+    assert.equal(found.scanRoot.root, join(sb.home, ".codex", "skills"));
+
+    // The status view labels the expanded agent family.
+    const { stdout } = await runCli(sb.home, ["status"]);
+    assert.match(stdout, /Codex root/, `expected the Codex scan-root label, got:\n${stdout}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
