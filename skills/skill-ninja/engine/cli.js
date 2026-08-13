@@ -10,6 +10,7 @@ import { homedir } from "node:os";
 import { configPath, loadConfig } from "./config.js";
 import { agentRoot } from "./agents.js";
 import { buildInventory, writeInventory, inventoryPath } from "./inventory.js";
+import { bootstrapConfig, seedConfig, ensureStore } from "./discover.js";
 import { renderStatus } from "./status.js";
 import { addCommand } from "./add.js";
 import { diffCommand } from "./diff.js";
@@ -112,21 +113,22 @@ function printInitSummary(inventory, cachePath) {
   process.stdout.write(lines.join("\n") + "\n");
 }
 
+// init — the single front door (ADR-0008). On a fresh machine it needs NO
+// pre-existing config: it discovers the landscape, seeds ~/.skill-ninja/
+// config.json, creates the canonical store (+ git init), then scans. Re-running
+// re-discovers and re-seeds (how config gets edited). Phases: discover → seed →
+// scan.
 async function initCommand() {
   const home = homedir();
-  let inventory;
-  try {
-    inventory = await buildInventory(home);
-  } catch (err) {
-    if (err && err.code === "ENOENT") {
-      process.stdout.write(
-        `No Skill Ninja configuration found at ${configPath(home)}.\n` +
-          "Create ~/.skill-ninja/config.json with your agents, vaults, and projects, then re-run `init`.\n",
-      );
-      return 0;
-    }
-    throw err;
-  }
+  // DISCOVER + SEED: build/refresh the config from detection and write it.
+  const config = await bootstrapConfig(home);
+  await seedConfig(home, config);
+  // Re-read the seeded config so `~` paths are expanded into absolute ones.
+  const resolved = await loadConfig(home);
+  // Canonical store + git init (first run works without a remote).
+  await ensureStore(resolved.store);
+  // SCAN: the config now exists; build + cache the inventory from it.
+  const inventory = await buildInventory(home);
   const cachePath = await writeInventory(inventory, home);
   printInitSummary(inventory, cachePath);
   return 0;
