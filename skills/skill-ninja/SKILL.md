@@ -25,12 +25,18 @@ Because of **tool asymmetry**, Skill Ninja resolves each **agent root** (e.g. `~
 
 | Slash command        | Engine command  | What it does                                                                | Status        |
 | -------------------- | --------------- | --------------------------------------------------------------------------- | ------------- |
-| `/skill-ninja init`  | `init`          | Analyze the machine; discover agent roots, vaults, and skills.              | Not yet built |
+| `/skill-ninja init`  | `init`          | Analyze the machine; scan agent roots, vaults, and project dirs, write the cached inventory. | **Live**      |
 | `/skill-ninja status`| `status`        | One inventory view: every skill's location, duplicates, broken links, versions, provenance. | Not yet built |
 | `/skill-ninja doctor`| `doctor`        | Detect and repair problems (broken links, duplicates, orphans), each fix approved first. | Not yet built |
 | `/skill-ninja add`   | `add`           | Ingest a new skill safely (safety check + diff), install it, record provenance. | Not yet built |
 | `/skill-ninja diff`  | `diff`          | Show what changed in a skill since the stored version.                      | Not yet built |
-| `/skill-ninja config`| `config show`   | Print the loaded configuration (canonical store, agent roots, vaults).      | **Live**      |
+| `/skill-ninja config`| `config show`   | Print the loaded configuration (canonical store, agent roots, vaults, projects). | **Live**      |
+
+### `/skill-ninja init` (live)
+
+Runs `node <SKILL_DIR>/engine/cli.js init` and relays the output. It scans every configured **scope** — the **agent roots** for each configured agent (tool asymmetry abstracted), the **vaults**, and the **project** working directories — and discovers every **Skill** (a `SKILL.md`, found by descent; a directory holding one is recorded and not descended into, since its subdirs are bundled assets). For each skill it records its location and scope, and parses `version` / `updated` / `provenance` from the `SKILL.md` frontmatter where present (absent fields are `null`). Broken symlinks are recorded distinctly rather than dropped.
+
+The result is written as a **cached inventory** at `~/.skill-ninja/inventory.json` — the data layer the other commands will read. The command prints a short summary (skills found, per-scope counts, broken-symlink count, cache path). Running it again overwrites the cache with a fresh scan (idempotent). The inventory schema and discovery rule are documented in `docs/adr/0003-cached-inventory-and-discovery.md`.
 
 ### `/skill-ninja config` (live)
 
@@ -38,4 +44,4 @@ Runs `node <SKILL_DIR>/engine/cli.js config show` and relays the output. It prin
 
 ## Build status
 
-This is the v1 skeleton: the skill → engine path, the **config** loader, the **agent-root model**, and the fixture test harness are in place. The `init` / `status` / `doctor` / `add` / `diff` commands above are the intended surface and are reported as "not implemented in this build yet" by the engine until their tickets land.
+The skill → engine path, the **config** loader, the **agent-root model**, and the fixture test harness are in place. `init` (machine analysis + cached inventory) and `config` are live. The `status` / `doctor` / `add` / `diff` commands are the intended surface and are reported as "not implemented in this build yet" by the engine until their tickets land.

@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 
 import { configPath, loadConfig } from "./config.js";
 import { agentRoot } from "./agents.js";
+import { buildInventory, writeInventory } from "./inventory.js";
 
 // The full command surface the skill exposes. Only `config` is wired in this
 // build (T1 skeleton); the rest are documented here so the CLI and SKILL.md
@@ -21,6 +22,17 @@ const COMMANDS = {
   diff: "Show what changed in a skill since the stored version.",
   config: "Show Skill Ninja's configuration (try: config show).",
 };
+
+// Push a titled list section ("name:" + one indented item per entry, or
+// "(none configured)") onto the output lines. Used for vaults / projects.
+function pushListSection(lines, title, items) {
+  lines.push("", `${title}:`);
+  if (items.length === 0) {
+    lines.push("  (none configured)");
+  } else {
+    for (const item of items) lines.push(`  ${item}`);
+  }
+}
 
 function printUsage(stream) {
   const lines = ["Usage: skill-ninja <command> [args]", "", "Commands:"];
@@ -57,14 +69,8 @@ async function showConfig() {
       lines.push(`  ${key} -> ${root ?? "(unknown agent)"}`);
     }
   }
-  lines.push("", "vaults:");
-  if (config.vaults.length === 0) {
-    lines.push("  (none configured)");
-  } else {
-    for (const vault of config.vaults) {
-      lines.push(`  ${vault}`);
-    }
-  }
+  pushListSection(lines, "vaults", config.vaults);
+  pushListSection(lines, "projects", config.projects);
   process.stdout.write(lines.join("\n") + "\n");
   return 0;
 }
@@ -79,10 +85,55 @@ async function configCommand(args) {
   return 2;
 }
 
+// init — analyze the machine: scan every configured scope (agent roots, vaults,
+// project dirs), discover skills, detect version/provenance, record broken
+// symlinks, write the cached inventory, and print a summary. (ADR-0003.)
+function printInitSummary(inventory, cachePath) {
+  const { counts } = inventory;
+  const scopeWord = counts.scopes === 1 ? "scope" : "scopes";
+  const skillWord = counts.skills === 1 ? "skill" : "skills";
+  const brokenWord = counts.broken === 1 ? "broken symlink" : "broken symlinks";
+  const lines = [
+    `Skill Ninja init — scanned ${counts.scopes} ${scopeWord}.`,
+    `Discovered ${counts.skills} ${skillWord}, ${counts.broken} ${brokenWord}.`,
+  ];
+  const keys = Object.keys(counts.byScope);
+  if (keys.length > 0) {
+    lines.push("");
+    const width = Math.max(...keys.map((k) => k.length));
+    for (const k of keys) lines.push(`  ${k.padEnd(width)}  ${counts.byScope[k]}`);
+  }
+  lines.push("", `Inventory written to ${cachePath}`);
+  process.stdout.write(lines.join("\n") + "\n");
+}
+
+async function initCommand() {
+  const home = homedir();
+  let inventory;
+  try {
+    inventory = await buildInventory(home);
+  } catch (err) {
+    if (err && err.code === "ENOENT") {
+      process.stdout.write(
+        `No Skill Ninja configuration found at ${configPath(home)}.\n` +
+          "Create ~/.skill-ninja/config.json with your agents, vaults, and projects, then re-run `init`.\n",
+      );
+      return 0;
+    }
+    throw err;
+  }
+  const cachePath = await writeInventory(inventory, home);
+  printInitSummary(inventory, cachePath);
+  return 0;
+}
+
 async function dispatch(argv) {
   const [command, ...rest] = argv;
   if (command === "config") {
     return configCommand(rest);
+  }
+  if (command === "init") {
+    return initCommand();
   }
   if (command in COMMANDS) {
     // Known command not yet wired in this build.

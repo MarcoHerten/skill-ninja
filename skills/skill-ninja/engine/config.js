@@ -28,7 +28,7 @@ function expandTilde(p, home) {
 /**
  * Load and normalize the config from ~/.skill-ninja/config.json.
  * @param {string} [home] $HOME to resolve from (defaults to os.homedir()).
- * @returns {Promise<{store: string|null, agents: string[], vaults: string[]}>}
+ * @returns {Promise<{store: string|null, agents: string[], vaults: string[], projects: string[]}>}
  *   Rejects with an ENOENT-shaped error if the config file is missing.
  */
 export async function loadConfig(home = homedir()) {
@@ -40,12 +40,15 @@ export function normalizeConfig(parsed, home) {
   const agents = Array.isArray(parsed.agents)
     ? parsed.agents.filter((a) => typeof a === "string")
     : [];
-  const vaults = Array.isArray(parsed.vaults)
-    ? parsed.vaults.filter((v) => typeof v === "string").map((v) => expandTilde(v, home))
-    : [];
+  const expandStrings = (arr) =>
+    Array.isArray(arr)
+      ? arr.filter((v) => typeof v === "string").map((v) => expandTilde(v, home))
+      : [];
   return {
     store: typeof parsed.store === "string" ? expandTilde(parsed.store, home) : null,
     agents,
-    vaults,
+    vaults: expandStrings(parsed.vaults),
+    // Project working directories to scan for SKILL.md (ADR-0003).
+    projects: expandStrings(parsed.projects),
   };
 }
