@@ -5,8 +5,8 @@
 // Tests assert only on the CLI's stdout and the resulting filesystem state —
 // never on engine internals — so this harness imports no engine code.
 
-import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
+import { spawn, execFileSync } from "node:child_process";
+import { mkdtemp, mkdir, writeFile, readFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -178,4 +178,122 @@ export function runCli(home, args = []) {
       resolve({ stdout, stderr, exitCode });
     });
   });
+}
+
+// --- add-command fixtures ----------------------------------------------------
+// Helpers for the `add` ticket (Issue #3): turn the canonical store into a git
+// repo (so the engine's "commit if configured" path is exercisable offline),
+// read back a stored Skill, and parse its stamped frontmatter. As with the
+// planters above, these import no engine code — they keep a local, intentionally
+// duplicated frontmatter reader so tests stay a black box (ADR-0001).
+
+/**
+ * Resolve the canonical store path from a planted config (mirrors the engine's
+ * `~`-expansion). Defaults to the DEFAULT_CONFIG store.
+ */
+export function storePath(home, store = DEFAULT_CONFIG.store) {
+  return expandTilde(store, home);
+}
+
+/**
+ * `git init` the canonical store and give it a default identity, so the engine's
+ * "commit if the store is a git repo" path runs without network. Returns the
+ * absolute store path. Used by the git-commit slice (Slice G) and the repo-source
+ * slice (Slice F).
+ */
+export function makeStoreGitRepo(home, store = DEFAULT_CONFIG.store) {
+  const dir = storePath(home, store);
+  // mkdir -p the store first; git init needs an existing (or creatable) dir.
+  execFileSync("git", ["init", "-q", dir], { stdio: "ignore" });
+  execFileSync(
+    "git",
+    ["-C", dir, "config", "user.name", "Test User"],
+    { stdio: "ignore" },
+  );
+  execFileSync(
+    "git",
+    ["-C", dir, "config", "user.email", "test@example.com"],
+    { stdio: "ignore" },
+  );
+  return dir;
+}
+
+/**
+ * Create a local git repo (with one committed SKILL.md) at `dest` and return its
+ * path. Used to exercise the `add <repo>` git-clone code path offline: the path
+ * ends in `.git` so the engine's repo-source detector clones it. `dest` should
+ * be absolute.
+ */
+export function makeLocalSkillRepo(dest, { name = "repo-skill", body = "# From repo\n" } = {}) {
+  execFileSync("git", ["init", "-q", dest], { stdio: "ignore" });
+  execFileSync("git", ["-C", dest, "config", "user.name", "Repo Author"], { stdio: "ignore" });
+  execFileSync("git", ["-C", dest, "config", "user.email", "repo@example.com"], { stdio: "ignore" });
+  writeFileSync(join(dest, "SKILL.md"), `---\nname: ${name}\n---\n\n${body}`, "utf8");
+  execFileSync("git", ["-C", dest, "add", "SKILL.md"], { stdio: "ignore" });
+  execFileSync("git", ["-C", dest, "commit", "-q", "-m", "init"], { stdio: "ignore" });
+  return dest;
+}
+
+// Synchronous file write for fixture setup (the repo helper runs before any
+// async test step).
+import { writeFileSync } from "node:fs";
+
+/**
+ * Read the stored Skill's SKILL.md (the canonical copy in the store).
+ */
+export async function readStoredSkill(home, name, store = DEFAULT_CONFIG.store) {
+  return readFile(join(storePath(home, store), name, "SKILL.md"), "utf8");
+}
+
+/**
+ * Minimal frontmatter reader: parse the `---`-delimited block at the top of a
+ * SKILL.md into a flat-ish object (top-level scalars + a nested `provenance`
+ * object). Local duplicate of the engine's parser so tests stay black-box.
+ * Returns {} when there is no frontmatter.
+ */
+export function parseStamps(text) {
+  const out = {};
+  if (typeof text !== "string" || !text.startsWith("---")) return out;
+  const lines = text.split(/\r?\n/);
+  if (lines[0].trim() !== "---") return out;
+  const close = lines.indexOf("---", 1);
+  if (close === -1) return out;
+  const fm = lines.slice(1, close);
+  let i = 0;
+  while (i < fm.length) {
+    const line = fm[i];
+    if (!line.trim() || line.trimStart().startsWith("#")) {
+      i += 1;
+      continue;
+    }
+    const m = line.match(/^([A-Za-z][\w-]*)\s*:\s*(.*)$/);
+    if (!m) {
+      i += 1;
+      continue;
+    }
+    const key = m[1];
+    const val = m[2];
+    if (val.trim() === "" && fm[i + 1] !== undefined && /^\s{2,}\S/.test(fm[i + 1])) {
+      const obj = {};
+      i += 1;
+      while (i < fm.length && /^\s{2,}\S/.test(fm[i])) {
+        const sub = fm[i].match(/^\s+([A-Za-z][\w-]*)\s*:\s*(.*)$/);
+        if (sub) {
+          let v = sub[2].trim();
+          if (v === "null" || v === "~") v = null;
+          else if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+          obj[sub[1]] = v;
+        }
+        i += 1;
+      }
+      out[key] = obj;
+      continue;
+    }
+    let v = val.trim();
+    if (v === "null" || v === "~") v = null;
+    else if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+    out[key] = v;
+    i += 1;
+  }
+  return out;
 }

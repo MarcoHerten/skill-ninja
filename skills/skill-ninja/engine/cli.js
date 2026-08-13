@@ -11,6 +11,7 @@ import { configPath, loadConfig } from "./config.js";
 import { agentRoot } from "./agents.js";
 import { buildInventory, writeInventory, inventoryPath } from "./inventory.js";
 import { renderStatus } from "./status.js";
+import { addCommand } from "./add.js";
 
 // The full command surface the skill exposes. Only `config` is wired in this
 // build (T1 skeleton); the rest are documented here so the CLI and SKILL.md
@@ -196,6 +197,9 @@ async function dispatch(argv) {
   }
   if (command === "status") {
     return statusCommand(rest);
+  }
+  if (command === "add") {
+    return addCommand(rest);
   }
   if (command in COMMANDS) {
     // Known command not yet wired in this build.
