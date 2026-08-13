@@ -1,4 +1,4 @@
-// Black-box tests for `skill-ninja status` — the unified inventory view (Issue #4).
+// Black-box tests for `ninja status` — the unified inventory view (Issue #4).
 //
 // status READS the cached inventory written by `init`; it does not re-scan the
 // filesystem. So each test seeds the cache the realistic way: plant a skill

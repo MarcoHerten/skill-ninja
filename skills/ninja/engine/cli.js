@@ -3,7 +3,7 @@
 //
 // The skill (SKILL.md) is the interface the agent drives via slash commands;
 // this engine does the deterministic work (SPEC.md: hybrid form factor). It
-// dispatches `skill-ninja <command>` to a command handler.
+// dispatches `ninja <command>` to a command handler.
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 
@@ -41,7 +41,7 @@ function pushListSection(lines, title, items) {
 }
 
 function printUsage(stream) {
-  const lines = ["Usage: skill-ninja <command> [args]", "", "Commands:"];
+  const lines = ["Usage: ninja <command> [args]", "", "Commands:"];
   for (const [name, desc] of Object.entries(COMMANDS)) {
     lines.push(`  ${name.padEnd(8)} ${desc}`);
   }
@@ -57,7 +57,7 @@ async function showConfig() {
     if (err && err.code === "ENOENT") {
       process.stdout.write(
         `No Skill Ninja configuration found at ${configPath(home)}.\n` +
-          "Run `skill-ninja init` to analyze your machine and create one.\n",
+          "Run `ninja init` to analyze your machine and create one.\n",
       );
       return 0;
     }
@@ -87,7 +87,7 @@ async function configCommand(args) {
     return showConfig();
   }
   process.stderr.write(`Unknown config subcommand: ${sub}\n`);
-  process.stderr.write("Try: skill-ninja config show\n");
+  process.stderr.write("Try: ninja config show\n");
   return 2;
 }
 
@@ -146,7 +146,7 @@ function parseStatusFlags(argv) {
     else if (a === "--personal") flags.personal = true;
     else {
       process.stderr.write(`Unknown status flag: ${a}\n`);
-      process.stderr.write("Try: skill-ninja status [--broken] [--duplicates] [--personal]\n");
+      process.stderr.write("Try: ninja status [--broken] [--duplicates] [--personal]\n");
       return null;
     }
   }
@@ -165,7 +165,7 @@ async function statusCommand(args) {
     if (err && err.code === "ENOENT") {
       process.stdout.write(
         `No Skill Ninja inventory found at ${inventoryPath(home)}.\n` +
-          "Run `skill-ninja init` to scan your skills, then re-run `status`.\n",
+          "Run `ninja init` to scan your skills, then re-run `status`.\n",
       );
       return 0;
     }

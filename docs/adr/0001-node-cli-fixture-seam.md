@@ -4,7 +4,7 @@ Skill Ninja's only automated test seam is the black-box Node CLI invoked against
 
 ## Decision
 
-Tests spawn the engine's CLI entry — `node skills/skill-ninja/engine/cli.js <command>` — as a child process inside a sandboxed fake `$HOME` (a fresh temp directory), and assert only on the process's stdout / exit code and the resulting filesystem state, never on internal modules. The fixture harness (`tests/helpers/harness.js`) builds the sandbox: a temp `$HOME` with the configured **agent roots** and an Obsidian **vault** planted, and `~/.skill-ninja/config.json` written; it then runs the CLI with `HOME` pointed at the sandbox and returns `{ stdout, stderr, exitCode }`. Runner is Node's built-in `node --test`; zero runtime dependencies (Node built-ins only).
+Tests spawn the engine's CLI entry — `node skills/ninja/engine/cli.js <command>` — as a child process inside a sandboxed fake `$HOME` (a fresh temp directory), and assert only on the process's stdout / exit code and the resulting filesystem state, never on internal modules. The fixture harness (`tests/helpers/harness.js`) builds the sandbox: a temp `$HOME` with the configured **agent roots** and an Obsidian **vault** planted, and `~/.skill-ninja/config.json` written; it then runs the CLI with `HOME` pointed at the sandbox and returns `{ stdout, stderr, exitCode }`. Runner is Node's built-in `node --test`; zero runtime dependencies (Node built-ins only).
 
 ## Why
 

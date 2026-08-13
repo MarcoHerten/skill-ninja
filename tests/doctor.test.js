@@ -1,4 +1,4 @@
-// Black-box tests for `skill-ninja doctor` (Issue #6 / T6) — detect problems,
+// Black-box tests for `ninja doctor` (Issue #6 / T6) — detect problems,
 // propose repairs, and apply them only with approval. Tests plant a messy skill
 // landscape in a sandboxed fake $HOME, run `init` to cache the inventory, then
 // run `doctor` and assert on stdout + the resulting filesystem only.

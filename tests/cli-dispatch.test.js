@@ -30,7 +30,7 @@ test("an unknown command exits non-zero and prints usage to stderr", async () =>
 
     assert.equal(exitCode, 2);
     assert.match(stderr, /Unknown command: bogus-command/);
-    assert.match(stderr, /Usage: skill-ninja <command>/);
+    assert.match(stderr, /Usage: ninja <command>/);
   } finally {
     await sb.cleanup();
   }

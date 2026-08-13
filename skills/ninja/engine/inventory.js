@@ -1,4 +1,4 @@
-// The cached-inventory builder for `skill-ninja init`.
+// The cached-inventory builder for `ninja init`.
 //
 // init analyzes the machine: it walks the configured scan roots (agent roots,
 // vaults, project dirs), discovers every Skill (a SKILL.md), detects

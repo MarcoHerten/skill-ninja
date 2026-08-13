@@ -1,4 +1,4 @@
-// `skill-ninja doctor` — detect problems across the **Skill** landscape, propose
+// `ninja doctor` — detect problems across the **Skill** landscape, propose
 // a repair for each, and apply repairs only with the user's approval (Issue #6).
 //
 // Approval model (ADR-0006): `doctor` with no flag is a DETECT + REPORT dry run
@@ -319,7 +319,7 @@ export function renderDoctor(findings, opts) {
   if (!apply) {
     lines.push(
       "",
-      "Nothing was changed. Run `skill-ninja doctor --apply` to apply all proposed repairs.",
+      "Nothing was changed. Run `ninja doctor --apply` to apply all proposed repairs.",
     );
     return lines.join("\n") + "\n";
   }
@@ -341,14 +341,14 @@ export function renderDoctor(findings, opts) {
   } else {
     lines.push("  - No orphans ingested.");
   }
-  lines.push("", "Run `skill-ninja init` to refresh the inventory, then `doctor` to re-check.");
+  lines.push("", "Run `ninja init` to refresh the inventory, then `doctor` to re-check.");
   return lines.join("\n") + "\n";
 }
 
 // --- command -----------------------------------------------------------------
 
 /**
- * Run `skill-ninja doctor`. Returns the process exit code.
+ * Run `ninja doctor`. Returns the process exit code.
  * @param {string[]} args
  */
 export async function doctorCommand(args) {
@@ -359,7 +359,7 @@ export async function doctorCommand(args) {
   const opts = parseDoctorArgs(args);
   if (opts.error) {
     err.write(`${opts.error}\n`);
-    err.write("Try: skill-ninja doctor [--apply] [--only broken|duplicates|orphans]\n");
+    err.write("Try: ninja doctor [--apply] [--only broken|duplicates|orphans]\n");
     return 2;
   }
 
@@ -371,7 +371,7 @@ export async function doctorCommand(args) {
     if (e && e.code === "ENOENT") {
       out.write(
         `No Skill Ninja inventory found at ${inventoryPath(home)}.\n` +
-          "Run `skill-ninja init` to scan your skills, then re-run `doctor`.\n",
+          "Run `ninja init` to scan your skills, then re-run `doctor`.\n",
       );
       return 0;
     }

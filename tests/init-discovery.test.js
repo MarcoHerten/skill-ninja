@@ -1,4 +1,4 @@
-// Black-box tests for `skill-ninja init` — the machine analysis / cached
+// Black-box tests for `ninja init` — the machine analysis / cached
 // inventory (ADR-0003). Tests plant a skill landscape in a sandboxed fake $HOME,
 // run the CLI, and assert on stdout + the written inventory cache file. They
 // never import engine code (ADR-0001).

@@ -140,7 +140,7 @@ function summarizeChanges(entries) {
 }
 
 /**
- * Run `skill-ninja diff <name> <candidate>`. Compares the stored (baseline)
+ * Run `ninja diff <name> <candidate>`. Compares the stored (baseline)
  * Skill <name> against a candidate version (a folder, a bare SKILL.md, or a
  * repo/URL — resolved with the same source resolver `add` uses). Reports a
  * header naming both sides with their content hashes, a verdict (DIFFERS /
@@ -161,7 +161,7 @@ export async function diffCommand(args) {
     config = await loadConfig(home);
   } catch (e) {
     if (e && e.code === "ENOENT") {
-      err.write("No Skill Ninja configuration found. Run `skill-ninja init` first.\n");
+      err.write("No Skill Ninja configuration found. Run `ninja init` first.\n");
       return 2;
     }
     throw e;
@@ -175,7 +175,7 @@ export async function diffCommand(args) {
   const parsed = parseDiffArgs(args);
   if (parsed.error) {
     err.write(`${parsed.error}\n`);
-    err.write("Try: skill-ninja diff <name> <candidate>\n");
+    err.write("Try: ninja diff <name> <candidate>\n");
     return 2;
   }
   const [name, candidate] = parsed.positional;
@@ -185,7 +185,7 @@ export async function diffCommand(args) {
   if (!name) {
     out.write(
       "`diff` compares a stored skill against a candidate version.\n" +
-        "Usage: skill-ninja diff <name> <candidate>\n" +
+        "Usage: ninja diff <name> <candidate>\n" +
         "  <name>      a skill already in the canonical store (the baseline).\n" +
         "  <candidate> a folder, a bare SKILL.md, or a repo/URL — the version to compare\n" +
         "              (e.g. the v2 a friend sent, or an upstream repo).\n" +
@@ -197,7 +197,7 @@ export async function diffCommand(args) {
     out.write(
       `Skill Ninja diff needs a candidate to compare '${name}' against — the store copy is\n` +
         `the baseline, so there is nothing to diff without one.\n` +
-        `Usage: skill-ninja diff ${name} <candidate>\n` +
+        `Usage: ninja diff ${name} <candidate>\n` +
         "  <candidate> = a folder, a bare SKILL.md, or a repo/URL (e.g. an updated copy, or an upstream repo).\n",
     );
     return 2;
@@ -208,7 +208,7 @@ export async function diffCommand(args) {
   if (!existsSync(storedFile)) {
     err.write(
       `Skill '${name}' is not in the canonical store at ${store}.\n` +
-        `Run \`skill-ninja add ${name} <source>\` to store it first, then diff.\n`,
+        `Run \`ninja add ${name} <source>\` to store it first, then diff.\n`,
     );
     return 2;
   }

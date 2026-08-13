@@ -1,4 +1,4 @@
-// Black-box tests for `skill-ninja add` (Issue #3 / T4) — safe ingest with
+// Black-box tests for `ninja add` (Issue #3 / T4) — safe ingest with
 // stamping, content hash, store placement + agent-root linking, safety check,
 // existing-version diff, repo source, and git commit. Tests plant a source in a
 // sandboxed fake $HOME, run the CLI, and assert on stdout + filesystem only.

@@ -1,4 +1,4 @@
-// Black-box tests for `skill-ninja diff` (Issue #5 / T5) — compare a stored
+// Black-box tests for `ninja diff` (Issue #5 / T5) — compare a stored
 // Skill against a candidate version. Tests seed the store with `add`, then run
 // `diff` and assert on stdout + exit code only. Expected hashes/counts come from
 // INDEPENDENT reasoning (a sha256 computed in the test from known content, or a
@@ -169,7 +169,7 @@ test("diff without a candidate prints guidance and exits non-zero", async () => 
 
     assert.notEqual(exitCode, 0, `expected non-zero exit, got ${exitCode}`);
     assert.match(stdout, /candidate/i, `expected guidance mentioning a candidate, got:\n${stdout}`);
-    assert.match(stdout, /skill-ninja diff lonely <candidate>/, `expected a usage hint, got:\n${stdout}`);
+    assert.match(stdout, /ninja diff lonely <candidate>/, `expected a usage hint, got:\n${stdout}`);
   } finally {
     await sb.cleanup();
   }

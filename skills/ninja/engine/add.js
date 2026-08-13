@@ -1,4 +1,4 @@
-// `skill-ninja add` — ingest a new Skill safely (Issue #3 / T4).
+// `ninja add` — ingest a new Skill safely (Issue #3 / T4).
 //
 // Non-interactive engine command: ingest a source (folder, bare file/prompt, or
 // repo/URL), run the lightweight safety check, show a diff against any existing
@@ -228,7 +228,7 @@ function tryPush(store) {
 // --- command -----------------------------------------------------------------
 
 /**
- * Run `skill-ninja add`. Returns the process exit code.
+ * Run `ninja add`. Returns the process exit code.
  * @param {string[]} args
  */
 export async function addCommand(args) {
@@ -241,7 +241,7 @@ export async function addCommand(args) {
     config = await loadConfig(home);
   } catch (e) {
     if (e && e.code === "ENOENT") {
-      err.write("No Skill Ninja configuration found. Run `skill-ninja init` first.\n");
+      err.write("No Skill Ninja configuration found. Run `ninja init` first.\n");
       return 2;
     }
     throw e;
@@ -255,7 +255,7 @@ export async function addCommand(args) {
   const opts = parseAddArgs(args);
   if (opts.error) {
     err.write(`${opts.error}\n`);
-    err.write("Try: skill-ninja add <folder|file|repo> [--to claude,zcode] [--name x] [--source received] [--from x]\n");
+    err.write("Try: ninja add <folder|file|repo> [--to claude,zcode] [--name x] [--source received] [--from x]\n");
     return 2;
   }
 

@@ -12,11 +12,11 @@ Existing options are either ad-hoc (a folder of symlinks) or overloaded multi-to
 
 Skill Ninja runs **inside your coding agent**, on top of the skills [skills.sh](https://skills.sh) (or you) placed there. **skills.sh installs skills; Skill Ninja looks after them** — one clear picture of the landscape, plus the tools to keep it healthy:
 
-- **`/init`** — analyzes your machine: which agents are installed, where every skill lives across roots and vaults (no config needed on first run — it's created for you).
-- **`status`** — one inventory view: per-agent reachability, copy-vs-symlink, global-vs-project, duplicates, broken symlinks, versions, and provenance.
-- **`doctor`** — detects and repairs problems (broken links, duplicates, orphans), with your approval for each fix.
-- **`add`** — ingests a skill that didn't come through skills.sh (a friend, a download, a bare prompt): safety check, diff, provenance + content-hash stamp, and install. Versioned in your private GitHub repo.
-- **`diff`** — shows what changed in a skill since you stored it ("my friend sent v2 — what's new?"), or against the upstream skills.sh source.
+- **`/ninja init`** — analyzes your machine: which agents are installed, where every skill lives across roots and vaults (no config needed on first run — it's created for you).
+- **`/ninja status`** — one inventory view: per-agent reachability, copy-vs-symlink, global-vs-project, duplicates, broken symlinks, versions, and provenance.
+- **`/ninja doctor`** — detects and repairs problems (broken links, duplicates, orphans), with your approval for each fix.
+- **`/ninja add`** — ingests a skill that didn't come through skills.sh (a friend, a download, a bare prompt): safety check, diff, provenance + content-hash stamp, and install. Versioned in your private GitHub repo.
+- **`/ninja diff`** — shows what changed in a skill since you stored it ("my friend sent v2 — what's new?"), or against the upstream skills.sh source.
 
 Your **personal** skills live in a **local canonical store** — a git repo with an optional **private remote** for versioning. Skills you installed via skills.sh stay owned by skills.sh; Skill Ninja watches over everything.
 

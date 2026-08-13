@@ -1,5 +1,5 @@
 ---
-name: skill-ninja
+name: ninja
 description: Manage the skills AI coding agents consume — analyze the machine, inventory every skill across agent roots and vaults, repair the mess, and ingest new skills safely with provenance. Drives a bundled Node engine.
 ---
 
@@ -25,20 +25,20 @@ Because of **tool asymmetry**, Skill Ninja resolves each **agent root** (e.g. `~
 
 | Slash command        | Engine command  | What it does                                                                | Status        |
 | -------------------- | --------------- | --------------------------------------------------------------------------- | ------------- |
-| `/skill-ninja init`  | `init`          | Analyze the machine; scan agent roots, vaults, and project dirs, write the cached inventory. | **Live**      |
-| `/skill-ninja status`| `status`        | One inventory view: every skill's location, duplicates, broken links, versions, provenance. | **Live**      |
-| `/skill-ninja doctor`| `doctor`        | Detect and repair problems (broken links, duplicates, orphans), each fix approved first. | **Live**      |
-| `/skill-ninja add`   | `add`           | Ingest a new skill safely (safety check + diff), place + link it, stamp provenance & content hash. | **Live**      |
-| `/skill-ninja diff`  | `diff`          | Compare a stored skill against a candidate (an updated copy or an upstream repo) and show what changed. | **Live**      |
-| `/skill-ninja config`| `config show`   | Print the loaded configuration (canonical store, agent roots, vaults, projects). | **Live**      |
+| `/ninja init`  | `init`          | Analyze the machine; scan agent roots, vaults, and project dirs, write the cached inventory. | **Live**      |
+| `/ninja status`| `status`        | One inventory view: every skill's location, duplicates, broken links, versions, provenance. | **Live**      |
+| `/ninja doctor`| `doctor`        | Detect and repair problems (broken links, duplicates, orphans), each fix approved first. | **Live**      |
+| `/ninja add`   | `add`           | Ingest a new skill safely (safety check + diff), place + link it, stamp provenance & content hash. | **Live**      |
+| `/ninja diff`  | `diff`          | Compare a stored skill against a candidate (an updated copy or an upstream repo) and show what changed. | **Live**      |
+| `/ninja config`| `config show`   | Print the loaded configuration (canonical store, agent roots, vaults, projects). | **Live**      |
 
-### `/skill-ninja init` (live)
+### `/ninja init` (live)
 
 Runs `node <SKILL_DIR>/engine/cli.js init` and relays the output. On a fresh machine it needs **no pre-existing config** — it discovers the landscape, seeds `~/.skill-ninja/config.json`, creates the canonical store (+ `git init`), then scans (ADR-0008). It scans every configured **scan root** — the **agent roots** for each detected agent (existence-probe over skills.sh's conventions; tool asymmetry abstracted), the Obsidian **vaults** (read from `obsidian.json`), and the **project** working directories — and discovers every **Skill** (a `SKILL.md`, found by descent; a directory holding one is recorded and not descended into, since its subdirs are bundled assets). For each skill it records its location and scan root, and parses `version` / `updated` / `provenance` from the `SKILL.md` frontmatter where present (absent fields are `null`). It also reads any skills.sh `skills-lock.json` to attribute skills to their source. Broken symlinks are recorded distinctly rather than dropped.
 
 The result is written as a **cached inventory** at `~/.skill-ninja/inventory.json` — the data layer the other commands read. The command prints a short summary (skills found, per-scan-root counts, broken-symlink count, cache path). Running it again re-discovers, re-seeds the config, and overwrites the cache with a fresh scan (idempotent — this is also how you refresh or edit config). The inventory schema and discovery rule are documented in `docs/adr/0003-cached-inventory-and-discovery.md`; the bootstrap in `docs/adr/0008-init-bootstraps-config-and-discovers.md`.
 
-### `/skill-ninja status` (live)
+### `/ninja status` (live)
 
 Runs `node <SKILL_DIR>/engine/cli.js status [filters]` and relays the output. It reads the **cached inventory** written by `init` (it does **not** re-scan) and presents one unified, plain-language view: every **Skill** once, with each **location** it lives in and a human label for its scan root (e.g. `Claude root`, `ZCode root`, `vault <path>`, `project <path>`). For each location it shows `version` and **provenance** where known (`unknown` where not). Skills present in more than one location — the visible symptom of **tool asymmetry** — are tagged `[duplicate]` and list every location. **Broken symlinks** are listed distinctly under their own heading with a `[broken symlink]` marker. A header summarises the totals (skills, locations, duplicated skills, broken symlinks).
 
@@ -50,7 +50,7 @@ Filters narrow the view and may combine:
 
 Skill filters combine with AND; adding `--broken` alongside a skill filter shows both the matching skills and the broken symlinks. With no filter, the full unified view is shown. If no inventory exists yet, `status` says so in plain language and points to `init` (exit 0).
 
-### `/skill-ninja doctor` (live)
+### `/ninja doctor` (live)
 
 Runs `node <SKILL_DIR>/engine/cli.js doctor [options]` and relays the output. It detects problems across the **Skill** landscape, proposes a repair for each, and applies repairs **only with explicit approval** — nothing is changed by default. It reads the **cached inventory** written by `init` (it does **not** re-scan); the approval model, problem definitions, and repair rules are in `docs/adr/0006-doctor-detection-repair-and-approval.md`.
 
@@ -74,7 +74,7 @@ Runs `node <SKILL_DIR>/engine/cli.js doctor [options]` and relays the output. It
 
 `doctor` copies verbatim; it does **not** re-stamp `version`/`hash`/`provenance` (that is `add`'s job). After `--apply`, re-run `init` then `doctor` to confirm a healthy landscape. The dedup/orphan features require a configured `config.store`; without one, only broken links are handled. If no inventory exists yet, `doctor` says so and points to `init` (exit 0).
 
-### `/skill-ninja add` (live)
+### `/ninja add` (live)
 
 Runs `node <SKILL_DIR>/engine/cli.js add <source> [options]` and relays the output. This is the path for skills that **didn't come through skills.sh** (received, downloaded, or a bare prompt) — installing skills.sh-sourced skills is `npx skills add`'s job (ADR-0007). It runs the **safety check**, shows a diff against any existing version, places the canonical copy in the **canonical store**, links it into the chosen **agent roots** (resolving **tool asymmetry**), stamps **version / provenance / content hash**, and commits **and pushes** to the private remote (commit-only if no remote is configured). The engine is **non-interactive**: it reports safety findings and diffs to stdout and proceeds; this skill layer is where you walk the user through reviewing the safety output before running the ingest.
 
@@ -101,11 +101,11 @@ Runs `node <SKILL_DIR>/engine/cli.js add <source> [options]` and relays the outp
 
 **Git commit + push** — the canonical store is a git repo (`init` runs `git init`); the new skill is staged, committed as `add skill <name>`, and **pushed** to the configured private remote. If no remote is configured, it commits locally and skips push silently (ADR-0007).
 
-### `/skill-ninja diff` (live)
+### `/ninja diff` (live)
 
 Runs `node <SKILL_DIR>/engine/cli.js diff <name> <candidate>` and relays the output. It answers "a friend sent v2 — what's new?" and "is an update available upstream?" by comparing a **Skill** already in the **canonical store** (the baseline) against a candidate version. The comparison is over the **body** (the instructions after the frontmatter, per ADR-0005), so stamping churn never shows up as a change.
 
-**Usage:** `skill-ninja diff <name> <candidate>`
+**Usage:** `ninja diff <name> <candidate>`
 
 - `<name>` — a Skill already in the canonical store (the baseline / stored version).
 - `<candidate>` — the version to compare: a **folder** (a directory with `SKILL.md`), a **bare `SKILL.md` file**, or a **repo/URL** (a git URL, `owner/repo` shorthand, or a path ending in `.git`). It is resolved with the *same* source resolver `add` uses, so a repo/URL candidate **is** the upstream/external version — Skill Ninja clones it and diffs the cloned `SKILL.md`.
@@ -119,7 +119,7 @@ Runs `node <SKILL_DIR>/engine/cli.js diff <name> <candidate>` and relays the out
 
 If `<name>` is not in the store, `diff` says so in plain language, names the store path, and points to `add` (exit non-zero). The content hashes are SHA-256 of each side's body; the header shows the first 8 hex characters of each.
 
-### `/skill-ninja config` (live)
+### `/ninja config` (live)
 
 Runs `node <SKILL_DIR>/engine/cli.js config show` and relays the output. It prints the resolved **canonical store**, each configured **agent** with its resolved **agent root**, and the configured **vaults**. If no configuration exists yet, it says so and points to `init`.
 

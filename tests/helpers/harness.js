@@ -13,12 +13,12 @@ import { fileURLToPath } from "node:url";
 
 // Absolute path to the engine CLI entry. Tests always invoke it through runCli().
 export const ENGINE_PATH = fileURLToPath(
-  new URL("../../skills/skill-ninja/engine/cli.js", import.meta.url),
+  new URL("../../skills/ninja/engine/cli.js", import.meta.url),
 );
 
 // The agent-root model: which subdirectory under $HOME each supported coding
 // agent reads skills from. This mirrors the engine's documented model
-// (skills/skill-ninja/engine/agents.js) — kept as a local copy here so the test
+// (skills/ninja/engine/agents.js) — kept as a local copy here so the test
 // stays a black box. See CONTEXT.md: Agent root, Tool asymmetry. ADR-0008: the
 // map follows skills.sh's global-root conventions and is existence-probed.
 const AGENT_ROOTS = {
