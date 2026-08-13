@@ -20,6 +20,7 @@ import { join, basename } from "node:path";
 
 import { loadConfig } from "./config.js";
 import { agentRoot } from "./agents.js";
+import { bodyHash } from "./hash.js";
 
 const CONFIG_DIR = ".skill-ninja";
 const INVENTORY_FILE = "inventory.json";
@@ -174,14 +175,17 @@ async function scanRootTree(scanRoot, rootPath, attribution, out) {
   }
 }
 
-// Build one skill occurrence entry, parsing frontmatter for version/provenance.
-// `attribution` carries skills.sh lockfile data (ADR-0007/0008): when the skill
-// name is recorded in a lockfile, the occurrence is tagged External (owned by
-// skills.sh). The stored scanRoot is kept lean (no attribution payload).
+// Build one skill occurrence entry, parsing frontmatter for version/provenance
+// and computing the content hash (ADR-0005 body hash; CONTEXT.md "Duplicate" —
+// the hash is the secondary identity signal that catches the same skill living
+// under a different name). `attribution` carries skills.sh lockfile data
+// (ADR-0007/0008): when the skill name is recorded in a lockfile, the occurrence
+// is tagged External. The stored scanRoot is kept lean (no attribution payload).
 async function describeSkill(skillFile, skillDir, scanRoot, attribution) {
   let frontmatter = {};
+  let text = "";
   try {
-    const text = await readFile(skillFile, "utf8");
+    text = await readFile(skillFile, "utf8");
     frontmatter = parseFrontmatter(text);
   } catch {
     frontmatter = {};
@@ -199,6 +203,7 @@ async function describeSkill(skillFile, skillDir, scanRoot, attribution) {
     provenance: frontmatter.provenance ?? null,
     tier: ext ? "external" : null,
     external: ext ? { source: ext.source, computedHash: ext.computedHash } : null,
+    hash: bodyHash(text),
   };
 }
 

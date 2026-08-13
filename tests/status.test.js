@@ -59,8 +59,8 @@ test("status flags a skill present in multiple roots as a duplicate with each lo
     // Same logical skill (name "shared") in two agent roots -> tool asymmetry.
     await plantSkill(sb.home, ".claude/skills/shared");
     await plantSkill(sb.home, ".zcode/skills/shared");
-    // A second, unique skill that must NOT be flagged.
-    await plantSkill(sb.home, ".claude/skills/only-here");
+    // A second, unique skill (distinct content) that must NOT be flagged.
+    await plantSkill(sb.home, ".claude/skills/only-here", { body: "# Only here, unique body\n" });
 
     const { stdout, exitCode } = await seedAndStatus(sb);
 
@@ -167,7 +167,7 @@ test("--duplicates shows only skills with more than one location", async () => {
   try {
     await plantSkill(sb.home, ".claude/skills/shared");
     await plantSkill(sb.home, ".zcode/skills/shared");
-    await plantSkill(sb.home, ".claude/skills/only-here");
+    await plantSkill(sb.home, ".claude/skills/only-here", { body: "# Only here, unique body\n" });
 
     const { stdout, exitCode } = await seedAndStatus(sb, ["--duplicates"]);
 
@@ -176,6 +176,37 @@ test("--duplicates shows only skills with more than one location", async () => {
     assert.match(stdout, /\[duplicate\]/, `expected the duplicate flag, got:\n${stdout}`);
     // The unique skill is filtered out.
     assert.ok(!stdout.includes("only-here"), `unique skill must be hidden, got:\n${stdout}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// CONTEXT.md "Duplicate": identity is by name; the content hash is the secondary
+// signal that catches the same skill living under a DIFFERENT name. Two skills
+// with distinct names but identical content are flagged as content duplicates.
+test("status flags the same content under different names as a content duplicate", async () => {
+  const sb = await createSandbox();
+  try {
+    // Two differently-named skills with the SAME body.
+    await plantSkill(sb.home, ".claude/skills/alpha", { body: "# Identical instructions\n" });
+    await plantSkill(sb.home, ".zcode/skills/beta", { body: "# Identical instructions\n" });
+
+    const { stdout, exitCode } = await seedAndStatus(sb);
+
+    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+    // Both names appear, each tagged as a content duplicate.
+    assert.ok(stdout.includes("alpha"), `expected alpha, got:\n${stdout}`);
+    assert.ok(stdout.includes("beta"), `expected beta, got:\n${stdout}`);
+    assert.match(
+      stdout, /\[duplicate — same content, other name\]/,
+      `expected a content-duplicate tag, got:\n${stdout}`,
+    );
+    // The summary counts both as duplicated.
+    assert.match(stdout, /2 duplicated skills/, `expected 2 duplicated, got:\n${stdout}`);
+
+    // --duplicates surfaces content duplicates too (not only name duplicates).
+    const { stdout: filtered } = await seedAndStatus(sb, ["--duplicates"]);
+    assert.ok(filtered.includes("alpha") && filtered.includes("beta"), `content dupes must show under --duplicates, got:\n${filtered}`);
   } finally {
     await sb.cleanup();
   }

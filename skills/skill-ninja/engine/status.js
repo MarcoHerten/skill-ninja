@@ -86,16 +86,36 @@ function versionLine(occ) {
   return line;
 }
 
-// Group per-occurrence entries by name -> { name, occurrences, duplicate }.
+// Group per-occurrence entries by name -> { name, occurrences, duplicate,
+// hashDuplicate }. A group is a name-duplicate when the same name lives in more
+// than one location (the primary identity signal). It is a content-duplicate
+// (hashDuplicate) when any of its occurrences shares a content hash with an
+// occurrence under a DIFFERENT name — the secondary signal that catches the same
+// skill living under a different name (CONTEXT.md "Duplicate").
 function groupSkills(skills) {
   const map = new Map();
   for (const occ of skills) {
     if (!map.has(occ.name)) map.set(occ.name, []);
     map.get(occ.name).push(occ);
   }
+  // hash -> set of distinct names sharing that content hash.
+  const hashNames = new Map();
+  for (const occ of skills) {
+    if (!occ.hash) continue;
+    if (!hashNames.has(occ.hash)) hashNames.set(occ.hash, new Set());
+    hashNames.get(occ.hash).add(occ.name);
+  }
   const groups = [];
   for (const [name, occurrences] of map) {
-    groups.push({ name, occurrences, duplicate: occurrences.length > 1 });
+    const hashDuplicate = occurrences.some(
+      (occ) => occ.hash && hashNames.get(occ.hash).size > 1,
+    );
+    groups.push({
+      name,
+      occurrences,
+      duplicate: occurrences.length > 1,
+      hashDuplicate,
+    });
   }
   return groups;
 }
@@ -131,7 +151,7 @@ export function renderStatus(inventory, config, flags) {
   let groups = allGroups;
   if (skillFilterActive) {
     groups = allGroups.filter((g) => {
-      if (flags.duplicates && !g.duplicate) return false;
+      if (flags.duplicates && !g.duplicate && !g.hashDuplicate) return false;
       if (flags.personal && !g.occurrences.some((o) => isPersonal(o, store))) return false;
       return true;
     });
@@ -141,7 +161,7 @@ export function renderStatus(inventory, config, flags) {
   // (--broken alone), they contribute zero to the counts.
   const shownGroups = showSkills ? groups : [];
 
-  const dupCount = shownGroups.filter((g) => g.duplicate).length;
+  const dupCount = shownGroups.filter((g) => g.duplicate || g.hashDuplicate).length;
   const locCount = shownGroups.reduce((n, g) => n + g.occurrences.length, 0);
 
   const lines = ["Skill Ninja status"];
@@ -165,7 +185,12 @@ export function renderStatus(inventory, config, flags) {
       lines.push("  (none)");
     } else {
       for (const g of groups) {
-        lines.push(`  ${g.name}${g.duplicate ? " [duplicate]" : ""}`);
+        const tag = g.duplicate
+          ? " [duplicate]"
+          : g.hashDuplicate
+            ? " [duplicate — same content, other name]"
+            : "";
+        lines.push(`  ${g.name}${tag}`);
         for (const occ of g.occurrences) {
           lines.push(`    ${scanRootLabel(occ.scanRoot)} - ${occ.dir}`);
           lines.push(`      ${versionLine(occ)}  |  provenance: ${provenanceSummary(occ)}`);

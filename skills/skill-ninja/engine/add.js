@@ -22,7 +22,8 @@ import { loadConfig } from "./config.js";
 import { agentRoot } from "./agents.js";
 import { parseFrontmatter } from "./inventory.js";
 import { scanSafety, renderSafety } from "./safety.js";
-import { extractBody, renderDiff } from "./diff.js";
+import { extractBody } from "./hash.js";
+import { renderDiff } from "./diff.js";
 import { resolveSkillFromSource } from "./source.js";
 import { linkSkill } from "./links.js";
 

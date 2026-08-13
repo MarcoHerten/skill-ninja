@@ -7,7 +7,6 @@
 // No external diff dependency — a classic LCS line diff over split lines.
 
 import { homedir } from "node:os";
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -15,32 +14,10 @@ import { join } from "node:path";
 import { loadConfig } from "./config.js";
 import { parseFrontmatter } from "./inventory.js";
 import { resolveSkillFromSource } from "./source.js";
+import { extractBody, sha256 } from "./hash.js";
 
-/**
- * Extract the Skill body — the markdown content AFTER the `---` frontmatter
- * block — exactly as defined by ADR-0005 so the content hash is reproducible.
- *
- * Rule: if the content starts with a `---` fence line, the body is everything
- * after the closing `---` fence line; otherwise the body is the whole content.
- * If a frontmatter block never closes, the whole content is the body (lenient).
- *
- * @param {string} text
- * @returns {string}
- */
-export function extractBody(text) {
-  if (typeof text !== "string") return "";
-  const lines = text.split(/\r?\n/);
-  if (lines[0] !== "---") return text; // no opening fence -> whole content is the body
-  let closeIdx = -1;
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i] === "---") {
-      closeIdx = i;
-      break;
-    }
-  }
-  if (closeIdx === -1) return text; // never closes -> whole content (lenient)
-  return lines.slice(closeIdx + 1).join("\n");
-}
+// extractBody + sha256 are shared from ./hash.js (ADR-0005 body/content-hash
+// contract) so `add`, `diff`, and the inventory hash the same bytes.
 
 /**
  * Classic LCS line diff. Returns a list of entries describing how to turn
@@ -121,7 +98,7 @@ export function renderDiff(oldText, newText, { context = 1 } = {}) {
 
 // --- standalone `diff` command (Issue #5 / T5) --------------------------------
 
-const sha256 = (s) => createHash("sha256").update(s, "utf8").digest("hex");
+// sha256 is imported from ./hash.js.
 // First 8 hex chars + ellipsis — readable in a header, enough to identify.
 const shortHash = (h) => (h ? h.slice(0, 8) + "\u2026" : "unknown");
 
