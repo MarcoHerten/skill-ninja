@@ -27,7 +27,7 @@ Because of **tool asymmetry**, Skill Ninja resolves each **agent root** (e.g. `~
 | -------------------- | --------------- | --------------------------------------------------------------------------- | ------------- |
 | `/skill-ninja init`  | `init`          | Analyze the machine; scan agent roots, vaults, and project dirs, write the cached inventory. | **Live**      |
 | `/skill-ninja status`| `status`        | One inventory view: every skill's location, duplicates, broken links, versions, provenance. | **Live**      |
-| `/skill-ninja doctor`| `doctor`        | Detect and repair problems (broken links, duplicates, orphans), each fix approved first. | Not yet built |
+| `/skill-ninja doctor`| `doctor`        | Detect and repair problems (broken links, duplicates, orphans), each fix approved first. | **Live**      |
 | `/skill-ninja add`   | `add`           | Ingest a new skill safely (safety check + diff), place + link it, stamp provenance & content hash. | **Live**      |
 | `/skill-ninja diff`  | `diff`          | Compare a stored skill against a candidate (an updated copy or an upstream repo) and show what changed. | **Live**      |
 | `/skill-ninja config`| `config show`   | Print the loaded configuration (canonical store, agent roots, vaults, projects). | **Live**      |
@@ -49,6 +49,30 @@ Filters narrow the view and may combine:
 - `--personal` — only **Personal** skills. A skill is Personal when it lives under the configured **canonical store** path **or** its `provenance.source` is `authored` (the documented heuristic in `docs/adr/0004-personal-tier-heuristic.md`).
 
 Skill filters combine with AND; adding `--broken` alongside a skill filter shows both the matching skills and the broken symlinks. With no filter, the full unified view is shown. If no inventory exists yet, `status` says so in plain language and points to `init` (exit 0).
+
+### `/skill-ninja doctor` (live)
+
+Runs `node <SKILL_DIR>/engine/cli.js doctor [options]` and relays the output. It detects problems across the **Skill** landscape, proposes a repair for each, and applies repairs **only with explicit approval** — nothing is changed by default. It reads the **cached inventory** written by `init` (it does **not** re-scan); the approval model, problem definitions, and repair rules are in `docs/adr/0006-doctor-detection-repair-and-approval.md`.
+
+**Approval model — no silent changes:**
+
+- `doctor` (no flag) — **detect + report**, a dry run. Every problem is listed in plain language with its proposed repair. The filesystem is **not modified**. Exit 0. This is the skill layer's moment to walk the user through each proposed repair.
+- `doctor --apply` — the explicit approval. Every proposed repair is applied, then a **summary of applied changes** is printed. Exit 0.
+- `doctor --only broken|duplicates|orphans` — scope which problem types are considered (reported, and — with `--apply` — repaired). Default: all.
+
+**Problems detected:**
+
+- **Broken links** — dangling symlinks recorded by `init` (in `inventory.broken[]`).
+- **Duplicates** — a **Skill** spread across more than one location (**tool asymmetry**) *where at least one occurrence is a loose copy*. To tell a problematic duplicate from a healthy linked spread, `doctor` classifies each occurrence against the filesystem (read-only): **store** (under the canonical store), **link** (a symlink — the healthy state `add` produces), or **loose** (a real directory not under the store and not linked). A spread of all links is healthy and is **not** flagged.
+- **Orphans** — a *solo* occurrence (its name appears once) that is a **loose** copy: a real skill floating in an **agent root** or **vault**, never ingested into the canonical store. (A loose copy that is part of a duplicate spread is owned by dedup, not orphan repair.)
+
+**Repairs (on `--apply`):**
+
+- **Broken link** → remove the dangling symlink.
+- **Duplicate** → **consolidate to one canonical copy + links**, reusing `add`'s linking pattern: copy the chosen canonical content (prefer an occurrence under the store, else the first loose by path) into `<store>/<name>`, then replace each loose location with a symlink → `<store>/<name>`. Result: one canonical file, linked into the relevant roots — tool asymmetry resolved (one canonical copy + links, not multi-target deploy). The dry run names the canonical source so the user sees which content wins before approving.
+- **Orphan** → ingest into `<store>/<name>` and link its original location → the store copy.
+
+`doctor` copies verbatim; it does **not** re-stamp `version`/`hash`/`provenance` (that is `add`'s job). After `--apply`, re-run `init` then `doctor` to confirm a healthy landscape. The dedup/orphan features require a configured `config.store`; without one, only broken links are handled. If no inventory exists yet, `doctor` says so and points to `init` (exit 0).
 
 ### `/skill-ninja add` (live)
 
@@ -101,4 +125,4 @@ Runs `node <SKILL_DIR>/engine/cli.js config show` and relays the output. It prin
 
 ## Build status
 
-The skill → engine path, the **config** loader, the **agent-root model**, and the fixture test harness are in place. `init` (machine analysis + cached inventory), `status` (one readable inventory view with filters), `add` (safe ingest with stamping, content hash, store placement + agent-root linking, safety check, existing-version diff, and git commit), `diff` (compare a stored skill against a candidate / upstream version, with a readable added-changed-removed summary), and `config` are live. The `doctor` command is the remaining intended surface and is reported as "not implemented in this build yet" by the engine until its ticket lands.
+The skill → engine path, the **config** loader, the **agent-root model**, and the fixture test harness are in place. `init` (machine analysis + cached inventory), `status` (one readable inventory view with filters), `doctor` (detect problems, propose repairs, apply only on `--apply`, with a summary of applied changes), `add` (safe ingest with stamping, content hash, store placement + agent-root linking, safety check, existing-version diff, and git commit), `diff` (compare a stored skill against a candidate / upstream version, with a readable added-changed-removed summary), and `config` are live. The full v1.0 command surface is now implemented.

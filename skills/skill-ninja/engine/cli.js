@@ -13,11 +13,12 @@ import { buildInventory, writeInventory, inventoryPath } from "./inventory.js";
 import { renderStatus } from "./status.js";
 import { addCommand } from "./add.js";
 import { diffCommand } from "./diff.js";
+import { doctorCommand } from "./doctor.js";
 
-// The full command surface the skill exposes. Only `config` is wired in this
-// build (T1 skeleton); the rest are documented here so the CLI and SKILL.md
-// agree on the interface, and report "not implemented yet" rather than
-// "unknown command" when invoked.
+// The full command surface the skill exposes. Every command is wired to a
+// handler; COMMANDS also drives `help` so the CLI and SKILL.md agree on the
+// interface. (An entry here with no handler would report "not implemented yet"
+// rather than "unknown command" — a defensive guard for future surfaces.)
 const COMMANDS = {
   init: "Analyze the machine: discover agent roots, vaults, and skills.",
   status: "One inventory view of every skill across agents and vaults.",
@@ -204,6 +205,9 @@ async function dispatch(argv) {
   }
   if (command === "diff") {
     return diffCommand(rest);
+  }
+  if (command === "doctor") {
+    return doctorCommand(rest);
   }
   if (command in COMMANDS) {
     // Known command not yet wired in this build.

@@ -14,7 +14,7 @@
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFile, writeFile, mkdir, readdir, copyFile, rm, symlink } from "node:fs/promises";
+import { readFile, writeFile, mkdir, readdir, copyFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, dirname, basename, relative } from "node:path";
 
@@ -24,6 +24,7 @@ import { parseFrontmatter } from "./inventory.js";
 import { scanSafety, renderSafety } from "./safety.js";
 import { extractBody, renderDiff } from "./diff.js";
 import { resolveSkillFromSource } from "./source.js";
+import { linkSkill } from "./links.js";
 
 const sha256 = (s) => createHash("sha256").update(s, "utf8").digest("hex");
 const today = () => new Date().toISOString().slice(0, 10);
@@ -295,7 +296,8 @@ export async function addCommand(args) {
   }
 
   // 4. Link into the chosen agent roots (resolves tool asymmetry: one canonical
-  //    file, symlinked everywhere). Default = all configured agents.
+  //    file, symlinked everywhere). Default = all configured agents. Uses the
+  //    shared linking primitive `doctor` also reuses for dedup consolidation.
   const to = !opts.to || opts.to.length === 0 ? config.agents : opts.to;
   const linked = [];
   for (const key of to) {
@@ -304,10 +306,8 @@ export async function addCommand(args) {
       out.write(`(skipping unknown agent '${key}')\n`);
       continue;
     }
-    await mkdir(root, { recursive: true });
     const link = join(root, resolved.name);
-    await rm(link, { recursive: true, force: true }); // refresh any prior link/dir
-    await symlink(skillStoreDir, link, "dir");
+    await linkSkill(link, skillStoreDir); // mkdir parent + refresh any prior link/dir
     linked.push(`${link} (${key})`);
   }
 

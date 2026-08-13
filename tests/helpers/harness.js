@@ -152,6 +152,26 @@ export async function plantBrokenSymlink(home, relPath) {
 }
 
 /**
+ * Plant a **duplicate**: the same Skill (by name) as real directories in several
+ * locations — the tool-asymmetry mess `doctor` dedups. Each location gets its own
+ * real (non-symlink) SKILL.md so they classify as "loose" copies. (Issue #6.)
+ *
+ * @param {string} home The fake $HOME.
+ * @param {string} name The shared skill name (written into each SKILL.md).
+ * @param {string[]} dirRels Directories (relative to home) to plant the skill in.
+ * @param {object} [opts] Passed through to `plantSkill` (body / frontmatter).
+ * @returns {Promise<Array<{file:string, dir:string, name:string}>>}
+ */
+export async function plantDuplicate(home, name, dirRels, { body = "# A skill\n", frontmatter = null } = {}) {
+  const fm = frontmatter ?? { name };
+  const planted = [];
+  for (const rel of dirRels) {
+    planted.push(await plantSkill(home, rel, { frontmatter: fm, body }));
+  }
+  return planted;
+}
+
+/**
  * Run the Skill Ninja engine CLI against a fake $HOME and capture its output.
  *
  * @param {string} home The fake $HOME to run inside.
