@@ -29,7 +29,7 @@ Because of **tool asymmetry**, Skill Ninja resolves each **agent root** (e.g. `~
 | `/skill-ninja status`| `status`        | One inventory view: every skill's location, duplicates, broken links, versions, provenance. | **Live**      |
 | `/skill-ninja doctor`| `doctor`        | Detect and repair problems (broken links, duplicates, orphans), each fix approved first. | Not yet built |
 | `/skill-ninja add`   | `add`           | Ingest a new skill safely (safety check + diff), place + link it, stamp provenance & content hash. | **Live**      |
-| `/skill-ninja diff`  | `diff`          | Show what changed in a skill since the stored version.                      | Not yet built |
+| `/skill-ninja diff`  | `diff`          | Compare a stored skill against a candidate (an updated copy or an upstream repo) and show what changed. | **Live**      |
 | `/skill-ninja config`| `config show`   | Print the loaded configuration (canonical store, agent roots, vaults, projects). | **Live**      |
 
 ### `/skill-ninja init` (live)
@@ -77,10 +77,28 @@ Runs `node <SKILL_DIR>/engine/cli.js add <source> [options]` and relays the outp
 
 **Git commit** — if the canonical store is a git repo (`git -C <store> rev-parse` succeeds), the new skill is staged and committed locally as `add skill <name>`; it is **not** pushed (pushing is a separate, manual step in v1). If the store is not a git repo, this step is skipped silently.
 
+### `/skill-ninja diff` (live)
+
+Runs `node <SKILL_DIR>/engine/cli.js diff <name> <candidate>` and relays the output. It answers "a friend sent v2 — what's new?" and "is an update available upstream?" by comparing a **Skill** already in the **canonical store** (the baseline) against a candidate version. The comparison is over the **body** (the instructions after the frontmatter, per ADR-0005), so stamping churn never shows up as a change.
+
+**Usage:** `skill-ninja diff <name> <candidate>`
+
+- `<name>` — a Skill already in the canonical store (the baseline / stored version).
+- `<candidate>` — the version to compare: a **folder** (a directory with `SKILL.md`), a **bare `SKILL.md` file**, or a **repo/URL** (a git URL, `owner/repo` shorthand, or a path ending in `.git`). It is resolved with the *same* source resolver `add` uses, so a repo/URL candidate **is** the upstream/external version — Skill Ninja clones it and diffs the cloned `SKILL.md`.
+
+**A candidate is required.** The store copy is the canonical baseline, so there is nothing to diff without a second version to compare it against. Run `diff <name>` with no candidate and Skill Ninja says so in plain language and shows the usage (exit non-zero).
+
+**What it reports (stdout), in order:** a one-line header naming both sides — `diff '<name>': stored version <v> (hash ab12…) vs incoming <candidate> (hash cd34…) → content DIFFERS` (or `MATCHES`). Then:
+
+- If the two bodies share a content hash → `No content changes; the incoming version matches the stored version.` Nothing else. Exit 0.
+- If they differ → a one-line **summary** counting the changes distinctly — `Summary: N lines added, M lines removed, K lines changed.` — followed by a unified diff block with `-` (removed) and `+` (added) lines. A "changed" line is a removed line immediately followed by an added line (a modification); the rest are pure additions or removals. The counts come from the line diff, so they are exact, not approximate. Exit 0 (a successful diff — differences are information, not an error).
+
+If `<name>` is not in the store, `diff` says so in plain language, names the store path, and points to `add` (exit non-zero). The content hashes are SHA-256 of each side's body; the header shows the first 8 hex characters of each.
+
 ### `/skill-ninja config` (live)
 
 Runs `node <SKILL_DIR>/engine/cli.js config show` and relays the output. It prints the resolved **canonical store**, each configured **agent** with its resolved **agent root**, and the configured **vaults**. If no configuration exists yet, it says so and points to `init`.
 
 ## Build status
 
-The skill → engine path, the **config** loader, the **agent-root model**, and the fixture test harness are in place. `init` (machine analysis + cached inventory), `status` (one readable inventory view with filters), `add` (safe ingest with stamping, content hash, store placement + agent-root linking, safety check, existing-version diff, and git commit), and `config` are live. The `doctor` / `diff` commands are the intended surface and are reported as "not implemented in this build yet" by the engine until their tickets land.
+The skill → engine path, the **config** loader, the **agent-root model**, and the fixture test harness are in place. `init` (machine analysis + cached inventory), `status` (one readable inventory view with filters), `add` (safe ingest with stamping, content hash, store placement + agent-root linking, safety check, existing-version diff, and git commit), `diff` (compare a stored skill against a candidate / upstream version, with a readable added-changed-removed summary), and `config` are live. The `doctor` command is the remaining intended surface and is reported as "not implemented in this build yet" by the engine until its ticket lands.

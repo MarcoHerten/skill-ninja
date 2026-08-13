@@ -11,11 +11,11 @@
 // CONTEXT.md: Skill, Provenance, Agent root, Tool asymmetry, canonical store.
 // ADR-0005: the stamping & content-hash contract T5 (diff) depends on.
 
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { stat, readFile, writeFile, mkdir, readdir, copyFile, rm, symlink } from "node:fs/promises";
-import { existsSync, mkdtempSync } from "node:fs";
+import { readFile, writeFile, mkdir, readdir, copyFile, rm, symlink } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join, dirname, basename, relative } from "node:path";
 
 import { loadConfig } from "./config.js";
@@ -23,6 +23,7 @@ import { agentRoot } from "./agents.js";
 import { parseFrontmatter } from "./inventory.js";
 import { scanSafety, renderSafety } from "./safety.js";
 import { extractBody, renderDiff } from "./diff.js";
+import { resolveSkillFromSource } from "./source.js";
 
 const sha256 = (s) => createHash("sha256").update(s, "utf8").digest("hex");
 const today = () => new Date().toISOString().slice(0, 10);
@@ -63,40 +64,9 @@ function parseAddArgs(args) {
 
 // --- source resolution -------------------------------------------------------
 
-// A source is a repo/URL when it looks remote (URL schemes, git@, owner/repo
-// shorthand) or ends in `.git`. owner/repo only counts when it is not an
-// existing local path (so a relative folder is never mistaken for a GitHub repo).
-function looksLikeRepo(source) {
-  if (typeof source !== "string") return false;
-  if (source.endsWith(".git")) return true;
-  if (/^(https?|ssh|git):\/\//.test(source)) return true;
-  if (/^git@/.test(source)) return true;
-  if (/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(source) && !existsSync(source)) return true;
-  return false;
-}
-
-function cloneRepo(source) {
-  const url =
-    /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(source) && !existsSync(source)
-      ? `https://github.com/${source}`
-      : source;
-  const tmp = mkdtempSync(join(tmpdir(), "skill-ninja-clone-"));
-  try {
-    execFileSync("git", ["clone", "--quiet", url, tmp], { stdio: "pipe" });
-  } catch {
-    throw new Error(`failed to clone '${source}'`);
-  }
-  return tmp;
-}
-
-async function statOrNull(p) {
-  try {
-    return await stat(p);
-  } catch (err) {
-    if (err && err.code === "ENOENT") return null;
-    throw err;
-  }
-}
+// Source resolution (folder / bare file / repo-URL -> SKILL.md content) lives in
+// `source.js` and is shared with `diff`, so the two commands resolve sources
+// identically. `gatherAssets` below is add-specific (only ingest copies assets).
 
 // Collect bundled assets of a folder/repo skill: every file except SKILL.md,
 // skipping .git and node_modules. Returns [{absPath, relPath}].
@@ -135,27 +105,9 @@ async function resolveSource(opts) {
     sourceType = "prompt";
     content = opts.prompt;
   } else {
-    const source = opts.source;
-    if (looksLikeRepo(source)) {
-      sourceType = "repo";
-      dir = cloneRepo(source);
-    } else {
-      const st = await statOrNull(source);
-      if (st && st.isDirectory()) {
-        sourceType = "folder";
-        dir = source;
-      } else if (st && st.isFile()) {
-        sourceType = "file";
-        content = await readFile(source, "utf8");
-      } else {
-        throw new Error(`source not found: ${source}`);
-      }
-    }
-    if (dir) {
-      const skillFile = join(dir, "SKILL.md");
-      if (!existsSync(skillFile)) throw new Error(`no SKILL.md found in ${dir}`);
-      content = await readFile(skillFile, "utf8");
-    }
+    // Shared resolution: folder / bare file / repo-URL -> SKILL.md content +
+    // the working dir (for bundled assets). Reused by `diff`.
+    ({ content, dir, sourceType } = await resolveSkillFromSource(opts.source));
   }
 
   // Name: --name wins, else incoming frontmatter `name`, else the source dir
