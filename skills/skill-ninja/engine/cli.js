@@ -4,11 +4,13 @@
 // The skill (SKILL.md) is the interface the agent drives via slash commands;
 // this engine does the deterministic work (SPEC.md: hybrid form factor). It
 // dispatches `skill-ninja <command>` to a command handler.
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 
 import { configPath, loadConfig } from "./config.js";
 import { agentRoot } from "./agents.js";
-import { buildInventory, writeInventory } from "./inventory.js";
+import { buildInventory, writeInventory, inventoryPath } from "./inventory.js";
+import { renderStatus } from "./status.js";
 
 // The full command surface the skill exposes. Only `config` is wired in this
 // build (T1 skeleton); the rest are documented here so the CLI and SKILL.md
@@ -127,6 +129,63 @@ async function initCommand() {
   return 0;
 }
 
+// status — one readable inventory view. Reads the cached inventory written by
+// `init` (it does NOT re-scan); groups occurrences by name to surface
+// duplicates and tool-asymmetry spread; flags broken symlinks distinctly; shows
+// version/provenance where known; applies filters. (Issue #4.)
+function parseStatusFlags(argv) {
+  const flags = { broken: false, duplicates: false, personal: false };
+  for (const a of argv) {
+    if (a === "--broken") flags.broken = true;
+    else if (a === "--duplicates") flags.duplicates = true;
+    else if (a === "--personal") flags.personal = true;
+    else {
+      process.stderr.write(`Unknown status flag: ${a}\n`);
+      process.stderr.write("Try: skill-ninja status [--broken] [--duplicates] [--personal]\n");
+      return null;
+    }
+  }
+  return flags;
+}
+
+async function statusCommand(args) {
+  const flags = parseStatusFlags(args);
+  if (!flags) return 2;
+
+  const home = homedir();
+  let raw;
+  try {
+    raw = await readFile(inventoryPath(home), "utf8");
+  } catch (err) {
+    if (err && err.code === "ENOENT") {
+      process.stdout.write(
+        `No Skill Ninja inventory found at ${inventoryPath(home)}.\n` +
+          "Run `skill-ninja init` to scan your skills, then re-run `status`.\n",
+      );
+      return 0;
+    }
+    throw err;
+  }
+  const inventory = JSON.parse(raw);
+
+  // Config feeds the --personal heuristic (the canonical store path). If the
+  // config has vanished since init, fall back to store=null so personal is
+  // decided by provenance alone.
+  let config;
+  try {
+    config = await loadConfig(home);
+  } catch (err) {
+    if (err && err.code === "ENOENT") {
+      config = { store: null };
+    } else {
+      throw err;
+    }
+  }
+
+  process.stdout.write(renderStatus(inventory, config, flags));
+  return 0;
+}
+
 async function dispatch(argv) {
   const [command, ...rest] = argv;
   if (command === "config") {
@@ -134,6 +193,9 @@ async function dispatch(argv) {
   }
   if (command === "init") {
     return initCommand();
+  }
+  if (command === "status") {
+    return statusCommand(rest);
   }
   if (command in COMMANDS) {
     // Known command not yet wired in this build.

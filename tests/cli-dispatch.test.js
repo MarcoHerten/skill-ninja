@@ -39,7 +39,8 @@ test("an unknown command exits non-zero and prints usage to stderr", async () =>
 test("a documented-but-unimplemented command reports it is not built yet", async () => {
   const sb = await createSandbox();
   try {
-    const { stdout, exitCode } = await runCli(sb.home, ["status"]);
+    // `status` is now live; use a still-unimplemented command for this guard.
+    const { stdout, exitCode } = await runCli(sb.home, ["doctor"]);
 
     assert.equal(exitCode, 0);
     assert.match(stdout, /not implemented in this build yet/);

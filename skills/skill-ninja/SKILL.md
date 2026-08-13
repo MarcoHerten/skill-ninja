@@ -26,7 +26,7 @@ Because of **tool asymmetry**, Skill Ninja resolves each **agent root** (e.g. `~
 | Slash command        | Engine command  | What it does                                                                | Status        |
 | -------------------- | --------------- | --------------------------------------------------------------------------- | ------------- |
 | `/skill-ninja init`  | `init`          | Analyze the machine; scan agent roots, vaults, and project dirs, write the cached inventory. | **Live**      |
-| `/skill-ninja status`| `status`        | One inventory view: every skill's location, duplicates, broken links, versions, provenance. | Not yet built |
+| `/skill-ninja status`| `status`        | One inventory view: every skill's location, duplicates, broken links, versions, provenance. | **Live**      |
 | `/skill-ninja doctor`| `doctor`        | Detect and repair problems (broken links, duplicates, orphans), each fix approved first. | Not yet built |
 | `/skill-ninja add`   | `add`           | Ingest a new skill safely (safety check + diff), install it, record provenance. | Not yet built |
 | `/skill-ninja diff`  | `diff`          | Show what changed in a skill since the stored version.                      | Not yet built |
@@ -38,10 +38,22 @@ Runs `node <SKILL_DIR>/engine/cli.js init` and relays the output. It scans every
 
 The result is written as a **cached inventory** at `~/.skill-ninja/inventory.json` — the data layer the other commands will read. The command prints a short summary (skills found, per-scope counts, broken-symlink count, cache path). Running it again overwrites the cache with a fresh scan (idempotent). The inventory schema and discovery rule are documented in `docs/adr/0003-cached-inventory-and-discovery.md`.
 
+### `/skill-ninja status` (live)
+
+Runs `node <SKILL_DIR>/engine/cli.js status [filters]` and relays the output. It reads the **cached inventory** written by `init` (it does **not** re-scan) and presents one unified, plain-language view: every **Skill** once, with each **location** it lives in and a human label for its scope (e.g. `Claude root`, `ZCode root`, `vault <path>`, `project <path>`). For each location it shows `version` and **provenance** where known (`unknown` where not). Skills present in more than one location — the visible symptom of **tool asymmetry** — are tagged `[duplicate]` and list every location. **Broken symlinks** are listed distinctly under their own heading with a `[broken symlink]` marker. A header summarises the totals (skills, locations, duplicated skills, broken symlinks).
+
+Filters narrow the view and may combine:
+
+- `--broken` — only broken symlinks (skills hidden).
+- `--duplicates` — only skills with more than one location.
+- `--personal` — only **Personal** skills. A skill is Personal when it lives under the configured **canonical store** path **or** its `provenance.source` is `authored` (the documented heuristic in `docs/adr/0004-personal-tier-heuristic.md`).
+
+Skill filters combine with AND; adding `--broken` alongside a skill filter shows both the matching skills and the broken symlinks. With no filter, the full unified view is shown. If no inventory exists yet, `status` says so in plain language and points to `init` (exit 0).
+
 ### `/skill-ninja config` (live)
 
 Runs `node <SKILL_DIR>/engine/cli.js config show` and relays the output. It prints the resolved **canonical store**, each configured **agent** with its resolved **agent root**, and the configured **vaults**. If no configuration exists yet, it says so and points to `init`.
 
 ## Build status
 
-The skill → engine path, the **config** loader, the **agent-root model**, and the fixture test harness are in place. `init` (machine analysis + cached inventory) and `config` are live. The `status` / `doctor` / `add` / `diff` commands are the intended surface and are reported as "not implemented in this build yet" by the engine until their tickets land.
+The skill → engine path, the **config** loader, the **agent-root model**, and the fixture test harness are in place. `init` (machine analysis + cached inventory), `status` (one readable inventory view with filters), and `config` are live. The `doctor` / `add` / `diff` commands are the intended surface and are reported as "not implemented in this build yet" by the engine until their tickets land.
