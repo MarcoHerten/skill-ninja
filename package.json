@@ -1,0 +1,16 @@
+{
+  "name": "skill-ninja",
+  "version": "0.1.0",
+  "description": "Standalone skill-management product: analyze, inventory, repair, and ingest the skills AI coding agents consume.",
+  "type": "module",
+  "bin": {
+    "skill-ninja": "skills/skill-ninja/engine/cli.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT"
+}
