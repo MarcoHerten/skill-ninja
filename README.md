@@ -1,6 +1,6 @@
 # Skill Ninja
 
-> A standalone skill manager for AI coding agents — see, clean up, and safely add the skills your agents consume.
+> A skill health & provenance layer for AI coding agents — see where every skill lives, keep the landscape clean, and safely ingest the skills that don't come through [skills.sh](https://skills.sh).
 
 ## The problem
 
@@ -10,27 +10,27 @@ Existing options are either ad-hoc (a folder of symlinks) or overloaded multi-to
 
 ## What Skill Ninja does
 
-Skill Ninja runs **inside your coding agent** and gives you one clear picture of your skill landscape, plus the tools to keep it healthy:
+Skill Ninja runs **inside your coding agent**, on top of the skills [skills.sh](https://skills.sh) (or you) placed there. **skills.sh installs skills; Skill Ninja looks after them** — one clear picture of the landscape, plus the tools to keep it healthy:
 
-- **`/init`** — analyzes your machine: which agents are installed, where every skill lives across roots and vaults.
-- **`status`** — one inventory view: locations, duplicates, broken symlinks, versions, and provenance.
+- **`/init`** — analyzes your machine: which agents are installed, where every skill lives across roots and vaults (no config needed on first run — it's created for you).
+- **`status`** — one inventory view: per-agent reachability, copy-vs-symlink, global-vs-project, duplicates, broken symlinks, versions, and provenance.
 - **`doctor`** — detects and repairs problems (broken links, duplicates, orphans), with your approval for each fix.
-- **`add`** — ingests a skill from anywhere (a friend, a prompt, a repo), runs a safety check, shows a diff, and installs it where you choose.
-- **`diff`** — shows what changed in a skill since you stored it ("my friend sent v2 — what's new?").
+- **`add`** — ingests a skill that didn't come through skills.sh (a friend, a download, a bare prompt): safety check, diff, provenance + content-hash stamp, and install. Versioned in your private GitHub repo.
+- **`diff`** — shows what changed in a skill since you stored it ("my friend sent v2 — what's new?"), or against the upstream skills.sh source.
 
-Your skills live in a **local canonical store** with an **optional private Git remote** for versioning and sync — one source of truth, private, versioned.
+Your **personal** skills live in a **local canonical store** — a git repo with an optional **private remote** for versioning. Skills you installed via skills.sh stay owned by skills.sh; Skill Ninja watches over everything.
 
 ## Status
 
-🚧 **Early — specification stage.** The design is being sharpened; there is no usable build yet. See [`SPEC.md`](./SPEC.md) for the v1.0 specification and [`CONTEXT.md`](./CONTEXT.md) for the vocabulary.
+🚧 **Early — v1.0 command surface implemented; architecture sharpened.** Installation is delegated to skills.sh ([ADR-0007](./docs/adr/0007-skills-sh-installs-skill-ninja-audits.md)); `init` bootstraps configuration ([ADR-0008](./docs/adr/0008-init-bootstraps-config-and-discovers.md)). The engine is being realigned to these decisions. See [`SPEC.md`](./SPEC.md), [`CONTEXT.md`](./CONTEXT.md), and [`docs/adr/`](./docs/adr).
 
-## Install (planned)
+## Install
 
 ```bash
 npx skills add MarcoHerten/skill-ninja
 ```
 
-Distribution via [skills.sh](https://skills.sh) (`npx skills`) — multi-agent targeting, global vs project scope, and hash-based updates come for free.
+Distribution via [skills.sh](https://skills.sh) (`npx skills`) — multi-agent targeting, global vs project scope, and hash-based updates come for free. The same routine installs the skills Skill Ninja then watches over.
 
 ## Roadmap
 
@@ -40,7 +40,7 @@ Distribution via [skills.sh](https://skills.sh) (`npx skills`) — multi-agent t
 ## Design principles
 
 - **Local-first** — your skills stay on your machine; the only network is the optional Git remote.
-- **One source of truth** — a canonical store, with links into each agent's root (resolving the fact that different agents read different directories).
+- **One source of truth per tier** — a canonical store for personal skills (linked into each agent's root), and skills.sh's lockfile for the skills it installed. Skill Ninja audits across both.
 - **Agent-native** — operated via slash commands in your coding agent, not a separate app.
 - **Safe by default** — a lightweight safety check on every incoming skill.
 

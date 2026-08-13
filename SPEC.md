@@ -1,7 +1,7 @@
 # Skill Ninja — v1.0 Specification
 
 > Vocabulary: see [`CONTEXT.md`](./CONTEXT.md) (Skill, Skill Ninja, Provenance, the tiers, Agent root, Tool asymmetry).
-> Status: specification stage — no usable build yet.
+> Status: v1.0 command surface implemented; architecture sharpened — installation delegated to skills.sh (ADR-0007), `init` bootstraps configuration (ADR-0008). The engine is being realigned to these decisions.
 
 ## Problem Statement
 
@@ -11,15 +11,15 @@ Existing approaches are either ad-hoc (a hand-managed folder of symlinks) or ove
 
 ## Solution
 
-**Skill Ninja** — a standalone, public skill-management product, installed as a skill via `npx skills add MarcoHerten/skill-ninja`. It runs inside the coding agent and provides five capabilities:
+**Skill Ninja** — a standalone skill-management product, installed (like any skill) via skills.sh: `npx skills add MarcoHerten/skill-ninja`. **skills.sh is the installer**; Skill Ninja is the layer on top — it audits the skills already on the machine, heals them, and ingests (with provenance) the skills that don't come through skills.sh. It runs inside the coding agent and provides five capabilities:
 
 - **`init`** — analyzes the machine: which coding agents are installed, and where every skill lives across agent roots and Obsidian vaults.
 - **`status`** — one inventory view: each skill's location, duplicates, broken symlinks, versions, and provenance.
 - **`doctor`** — detects and repairs problems (broken links, duplicates, orphans), applying each fix only with the user's approval.
-- **`add`** — ingests a new skill from anywhere (a friend, a bare prompt, a repo/URL), runs a safety check, shows a diff against any existing version, installs it where the user chooses, and records provenance.
+- **`add`** — ingests a skill that didn't come through skills.sh (received from a friend, downloaded, or a bare prompt), runs a safety check, shows a diff against any existing version, stamps provenance + content hash, places the canonical copy in the store, links it into the chosen agent roots, and commits + pushes to the private remote. (Installing skills.sh-sourced skills is skills.sh's job — `npx skills add`.)
 - **`diff`** — shows what changed in a skill since the stored version ("a friend sent v2 — what's new?").
 
-Each user's skills live in a **local canonical store** with an **optional private Git remote** for versioning and sync. A static HTML status page is deferred to v1.1.
+**Personal** skills live in a **local canonical store** — a git repo with an optional **private remote** for versioning (`add` commits and pushes). **External** skills are owned by skills.sh (its `skills-lock.json`); Skill Ninja audits them but does not manage them. A static HTML status page is deferred to v1.1.
 
 ## User Stories
 
@@ -80,10 +80,12 @@ Each user's skills live in a **local canonical store** with an **optional privat
 ## Implementation Decisions
 
 - **Form factor — hybrid.** Skill Ninja ships as a skill (`SKILL.md`, the orchestration/interface layer the agent drives via slash commands) bundled with a **Node.js engine** that performs the deterministic work (inventory, hash, diff, doctor). The skill is the interface; the engine is the muscle.
-- **Standalone product.** Built as a self-contained system with its own scripts. It does **not** wrap any one user's existing tooling; earlier personal tools (a prior `skill-intake` skill, a `skill-inventory.py`) are design references that Skill Ninja generalizes and replaces.
+- **Standalone, but delegates installation.** Self-contained for its own concerns (audit, health, provenance), but it does **not** reimplement the installer — installation, agent targeting, and security scanning belong to **skills.sh** (`npx skills`), which also installs Skill Ninja itself (ADR-0007). It coexists with skills.sh rather than wrapping its CLI: each owns its own skill population. Earlier personal tools (`skill-intake`, `skill-inventory.py`) are design references Skill Ninja generalizes and replaces.
 - **Distribution.** Published as a GitHub repo in the standard `skills/skill-ninja/SKILL.md` layout, installable via `npx skills add MarcoHerten/skill-ninja`. Multi-agent targeting, global vs project scope, and hash-based updates are provided by skills.sh for free. A managed Claude Code plugin channel may follow later (dual-channel model).
+- **Relationship to skills.sh (ADR-0007).** Three layers: skills.sh installs (and installs Skill Ninja too); Skill Ninja audits, heals, and stamps provenance; a private GitHub repo versions Personal skills. `add` is the non-skills.sh path (received/downloaded/prompt); Skill Ninja links the Personal skills it owns, skills.sh links the External skills it owns.
+- **`init` bootstraps configuration (ADR-0008).** On a fresh machine `init` needs no pre-existing config — it discovers the landscape (agent roots by existence-probe, Obsidian vaults from `obsidian.json`, project dirs), seeds `~/.skill-ninja/config.json`, creates the store + `git init`, then scans. Re-running re-discovers and re-seeds (how config is edited — no `config set` DSL).
 - **Runtime — Node.js.** The engine scripts are Node, because the `npx` install guarantees Node is present; no Python (or other runtime) dependency is imposed on public users.
-- **Storage model.** Each user has a local **canonical store** (configurable path); an **optional private Git remote** provides versioning and sync. Personal skills live canonically in this store and are linked into the relevant agent roots. **External skills** (from skills.sh etc.) remain owned by their own installers and lockfiles — Skill Ninja inventories them but does not manage them.
+- **Storage model.** A local **canonical store** (default `~/.skill-ninja/store`) holds **Personal** skills; it is a git repo with an optional **private remote**, and `add` commits and pushes. Personal skills are linked into the relevant agent roots by Skill Ninja. **External skills** are owned by skills.sh (recorded in its `skills-lock.json`) — Skill Ninja audits them but does not manage or re-link them. Two linking systems coexist, separated by tier.
 - **Skill identity & versioning.** Each managed skill carries frontmatter stamps — `version`, `updated`, `provenance { source, from, imported, derived_from }` — plus a **content hash**. (Generalizes a proven personal convention.)
 - **Tool asymmetry.** Skill Ninja abstracts over agent roots: it knows each agent's root and places/links a skill into all relevant ones so one logical skill is available everywhere, without the user thinking about it.
 - **Commands.** `init`, `status`, `doctor`, `add`, `diff` — invoked by the agent through the skill's slash commands, which call the Node engine.
@@ -111,6 +113,6 @@ Each user's skills live in a **local canonical store** with an **optional privat
 
 ## Further Notes
 
-- **Load-bearing decisions:** public product (Q2); standalone system, not a wrapper (Q4/Q5); local canonical store + optional private Git remote (Q6); Node engine + skill interface (Q7); all five commands in the v1.0 spec (Q8), with the status page deferred to v1.1.
+- **Load-bearing decisions:** public product; standalone system that delegates installation to skills.sh (ADR-0007); local canonical store + optional private Git remote; Node engine + skill interface; `init` bootstraps configuration (ADR-0008); all five commands in the v1.0 spec, with the status page deferred to v1.1.
 - **Design references:** a prior personal skill store (tier model, frontmatter/provenance convention, dual-linking) and `mattpocock/skills` (distribution + dual-channel model). **Anti-pattern reference:** an earlier overloaded attempt — avoid its manual catalog, multi-target deploy script, and sync-as-transport.
 - **Build sequencing:** although the spec covers all of v1.0, the build can still sequence features — `init` + `status` first (the "see your chaos" core), then `add` + `diff`, then `doctor`. Slicing is decided at `/to-tickets`.
