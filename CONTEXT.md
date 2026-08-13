@@ -65,5 +65,5 @@ The fact that different agents read different agent roots, so one logical skill 
 _Avoid_: multi-tool problem (say tool asymmetry).
 
 **Scan root**:
-One of the locations `init` walks for skills — an agent root, an Obsidian vault, or a configured project directory. `status` reports per scan root. (In the code and inventory schema this is still named `scope`, pending a rename — see ADR-0003.)
+One of the locations `init` walks for skills — an agent root, an Obsidian vault, or a configured project directory. `status` reports per scan root. (In an earlier draft this was named `scope` in the code and inventory schema; the rename is complete — see ADR-0003.)
 _Avoid_: scope (reserved for the global-vs-project tier sense — see Project skill).

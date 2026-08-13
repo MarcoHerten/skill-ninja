@@ -12,8 +12,8 @@
 // Filters narrow the view. (Issue #4; CONTEXT.md: Skill, Provenance, Agent root,
 // Tool asymmetry; the tiers.)
 
-// Human-friendly scope labels. Configured agent keys map to product names; a
-// vault or project scope shows its kind + absolute path.
+// Human-friendly scan-root labels. Configured agent keys map to product names;
+// a vault or project scan root shows its kind + absolute path.
 const AGENT_LABELS = {
   claude: "Claude root",
   zcode: "ZCode root",
@@ -21,16 +21,16 @@ const AGENT_LABELS = {
 };
 
 /**
- * A readable label for a scope from the inventory.
- * @param {{kind:string, ref:string}} scope
+ * A readable label for a scan root from the inventory.
+ * @param {{kind:string, ref:string}} scanRoot
  * @returns {string}
  */
-export function scopeLabel(scope) {
-  if (!scope) return "(unknown scope)";
-  if (scope.kind === "agent") return AGENT_LABELS[scope.ref] ?? `${scope.ref} root`;
-  if (scope.kind === "vault") return `vault ${scope.ref}`;
-  if (scope.kind === "project") return `project ${scope.ref}`;
-  return `${scope.kind} ${scope.ref}`;
+export function scanRootLabel(scanRoot) {
+  if (!scanRoot) return "(unknown scan root)";
+  if (scanRoot.kind === "agent") return AGENT_LABELS[scanRoot.ref] ?? `${scanRoot.ref} root`;
+  if (scanRoot.kind === "vault") return `vault ${scanRoot.ref}`;
+  if (scanRoot.kind === "project") return `project ${scanRoot.ref}`;
+  return `${scanRoot.kind} ${scanRoot.ref}`;
 }
 
 /**
@@ -148,7 +148,7 @@ export function renderStatus(inventory, config, flags) {
       for (const g of groups) {
         lines.push(`  ${g.name}${g.duplicate ? " [duplicate]" : ""}`);
         for (const occ of g.occurrences) {
-          lines.push(`    ${scopeLabel(occ.scope)} - ${occ.dir}`);
+          lines.push(`    ${scanRootLabel(occ.scanRoot)} - ${occ.dir}`);
           lines.push(`      ${versionLine(occ)}  |  provenance: ${provenanceSummary(occ.provenance)}`);
         }
       }
@@ -161,7 +161,7 @@ export function renderStatus(inventory, config, flags) {
       lines.push("  (none)");
     } else {
       for (const b of broken) {
-        lines.push(`  [broken symlink] ${b.path} - ${scopeLabel(b.scope)}`);
+        lines.push(`  [broken symlink] ${b.path} - ${scanRootLabel(b.scanRoot)}`);
       }
     }
   }

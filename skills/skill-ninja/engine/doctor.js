@@ -23,7 +23,7 @@ import { join } from "node:path";
 
 import { loadConfig } from "./config.js";
 import { inventoryPath } from "./inventory.js";
-import { scopeLabel } from "./status.js";
+import { scanRootLabel } from "./status.js";
 import { linkSkill } from "./links.js";
 
 // --- argument parsing --------------------------------------------------------
@@ -90,7 +90,7 @@ export async function detect(inventory, config) {
 
   // Broken links — straight from the inventory; no store needed.
   for (const b of inventory.broken ?? []) {
-    findings.broken.push({ type: "broken", path: b.path, scope: b.scope });
+    findings.broken.push({ type: "broken", path: b.path, scanRoot: b.scanRoot });
   }
 
   // Dedup / orphan features are store-relative (ADR-0006).
@@ -247,7 +247,7 @@ function listFindings(findings, verb) {
   if (findings.broken.length) {
     lines.push("", `${plural(findings.broken.length, "Broken symlink")}:`);
     for (const f of findings.broken) {
-      lines.push(`  - ${f.path} (${scopeLabel(f.scope)}).`);
+      lines.push(`  - ${f.path} (${scanRootLabel(f.scanRoot)}).`);
       lines.push(`    ${verb}: remove the broken symlink.`);
     }
   }
@@ -260,7 +260,7 @@ function listFindings(findings, verb) {
           `including ${plural(f.linkDirs.length, "loose copy")} (the same skill in several places):`,
       );
       for (const occ of f.occurrences) {
-        lines.push(`      ${scopeLabel(occ.scope)} - ${occ.dir}`);
+        lines.push(`      ${scanRootLabel(occ.scanRoot)} - ${occ.dir}`);
       }
       const from = f.sourceFromStore
         ? `the canonical store copy at ${f.storeSkillDir}`
@@ -277,7 +277,7 @@ function listFindings(findings, verb) {
     for (const f of findings.orphans) {
       const occ = f.occurrences[0];
       lines.push(
-        `  - '${f.name}' is a loose copy at ${occ.dir} (${scopeLabel(occ.scope)}), ` +
+        `  - '${f.name}' is a loose copy at ${occ.dir} (${scanRootLabel(occ.scanRoot)}), ` +
           `not linked to the canonical store.`,
       );
       lines.push(

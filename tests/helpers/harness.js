@@ -64,7 +64,7 @@ export async function createSandbox({ config = DEFAULT_CONFIG } = {}) {
     );
     // Plant the configured agent roots, vaults, and project dirs so the sandbox
     // is a realistic skill landscape that later tickets (init / status / doctor)
-    // reuse. (ADR-0003: scopes scanned.)
+    // reuse. (ADR-0003: scan roots scanned.)
     for (const key of config.agents ?? []) {
       const sub = AGENT_ROOTS[key];
       if (sub) await mkdir(join(home, sub), { recursive: true });

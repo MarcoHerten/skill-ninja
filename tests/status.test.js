@@ -21,8 +21,8 @@ async function seedAndStatus(sb, statusArgs = []) {
   return runCli(sb.home, ["status", ...statusArgs]);
 }
 
-// Slice A — every skill is listed once with its location(s) and human scope labels.
-test("status lists every skill with its location and scope label", async () => {
+// Slice A — every skill is listed once with its location(s) and human scan-root labels.
+test("status lists every skill with its location and scan-root label", async () => {
   const sb = await createSandbox();
   try {
     await plantSkill(sb.home, ".claude/skills/claude-skill");
@@ -39,9 +39,9 @@ test("status lists every skill with its location and scope label", async () => {
       assert.ok(stdout.includes(name), `expected ${name} listed, got:\n${stdout}`);
     }
 
-    // Human scope labels and the skill directory (location) are shown.
-    assert.match(stdout, /Claude root/, `expected the Claude scope label, got:\n${stdout}`);
-    assert.match(stdout, /ZCode root/, `expected the ZCode scope label, got:\n${stdout}`);
+    // Human scan-root labels and the skill directory (location) are shown.
+    assert.match(stdout, /Claude root/, `expected the Claude scan-root label, got:\n${stdout}`);
+    assert.match(stdout, /ZCode root/, `expected the ZCode scan-root label, got:\n${stdout}`);
     assert.ok(
       stdout.includes(join(sb.home, ".claude", "skills", "claude-skill")),
       `expected the skill location, got:\n${stdout}`,
@@ -89,7 +89,7 @@ test("status flags a skill present in multiple roots as a duplicate with each lo
 });
 
 // Slice C — a broken symlink is flagged distinctly, separate from real skills.
-test("status flags broken symlinks distinctly with their path and scope", async () => {
+test("status flags broken symlinks distinctly with their path and scan root", async () => {
   const sb = await createSandbox();
   try {
     await plantSkill(sb.home, ".claude/skills/good-skill");
@@ -103,7 +103,7 @@ test("status flags broken symlinks distinctly with their path and scope", async 
       stdout.includes(broken.link),
       `expected the broken symlink path, got:\n${stdout}`,
     );
-    assert.match(stdout, /Claude root/, `expected the broken link's scope label, got:\n${stdout}`);
+    assert.match(stdout, /Claude root/, `expected the broken link's scan-root label, got:\n${stdout}`);
 
     // The real skill is still listed alongside the broken link.
     assert.ok(stdout.includes("good-skill"), `expected the good skill too, got:\n${stdout}`);

@@ -90,23 +90,23 @@ async function configCommand(args) {
   return 2;
 }
 
-// init — analyze the machine: scan every configured scope (agent roots, vaults,
-// project dirs), discover skills, detect version/provenance, record broken
-// symlinks, write the cached inventory, and print a summary. (ADR-0003.)
+// init — analyze the machine: scan every configured scan root (agent roots,
+// vaults, project dirs), discover skills, detect version/provenance, record
+// broken symlinks, write the cached inventory, and print a summary. (ADR-0003.)
 function printInitSummary(inventory, cachePath) {
   const { counts } = inventory;
-  const scopeWord = counts.scopes === 1 ? "scope" : "scopes";
+  const scanRootWord = counts.scanRoots === 1 ? "scan root" : "scan roots";
   const skillWord = counts.skills === 1 ? "skill" : "skills";
   const brokenWord = counts.broken === 1 ? "broken symlink" : "broken symlinks";
   const lines = [
-    `Skill Ninja init — scanned ${counts.scopes} ${scopeWord}.`,
+    `Skill Ninja init — scanned ${counts.scanRoots} ${scanRootWord}.`,
     `Discovered ${counts.skills} ${skillWord}, ${counts.broken} ${brokenWord}.`,
   ];
-  const keys = Object.keys(counts.byScope);
+  const keys = Object.keys(counts.byScanRoot);
   if (keys.length > 0) {
     lines.push("");
     const width = Math.max(...keys.map((k) => k.length));
-    for (const k of keys) lines.push(`  ${k.padEnd(width)}  ${counts.byScope[k]}`);
+    for (const k of keys) lines.push(`  ${k.padEnd(width)}  ${counts.byScanRoot[k]}`);
   }
   lines.push("", `Inventory written to ${cachePath}`);
   process.stdout.write(lines.join("\n") + "\n");

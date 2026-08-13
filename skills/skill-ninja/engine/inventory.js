@@ -1,6 +1,6 @@
 // The cached-inventory builder for `skill-ninja init`.
 //
-// init analyzes the machine: it walks the configured scopes (agent roots,
+// init analyzes the machine: it walks the configured scan roots (agent roots,
 // vaults, project dirs), discovers every Skill (a SKILL.md), detects
 // version/provenance from frontmatter where present, records broken symlinks,
 // and writes a cached inventory at ~/.skill-ninja/inventory.json.
@@ -11,6 +11,8 @@
 // Provenance).
 //
 // Inventory schema + skill-discovery rule: docs/adr/0003-cached-inventory-and-discovery.md
+// Vocabulary: each discovered location is a "scan root" (CONTEXT.md). In an
+// earlier draft this was named `scope`; the rename is complete in code + schema.
 
 import { readdir, stat, mkdir, writeFile, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -98,20 +100,24 @@ function coerce(raw) {
 // --- discovery ---------------------------------------------------------------
 
 /**
- * Walk a scope's tree, collecting skill occurrences and broken symlinks.
+ * Walk a scan root's tree, collecting skill occurrences and broken symlinks.
  *
  * Discovery rule (ADR-0003): a directory containing a SKILL.md is a skill — it
  * is recorded and NOT descended into (its subdirs are bundled assets). Otherwise
  * the walk descends into subdirectories. Broken symlinks are recorded, never
  * raised. `lstat` detects symlinks; following the link (`stat`) detects
  * brokenness via ENOENT.
+ *
+ * @param {{kind:string, ref:string, root:string}} scanRoot The scan-root descriptor.
+ * @param {string} rootPath The directory to walk (starts at scanRoot.root).
+ * @param {object} out Accumulator: `{ skills: [], broken: [] }`.
  */
-async function scanScope(scope, rootPath, out) {
+async function scanRootTree(scanRoot, rootPath, out) {
   let entries;
   try {
     entries = await readdir(rootPath, { withFileTypes: true });
   } catch (err) {
-    // A scope whose root is missing / unreadable contributes nothing.
+    // A scan root whose root is missing / unreadable contributes nothing.
     if (err && (err.code === "ENOENT" || err.code === "ENOTDIR")) return;
     throw err;
   }
@@ -126,13 +132,13 @@ async function scanScope(scope, rootPath, out) {
     } catch (err) {
       if (err && err.code === "ENOENT") {
         // SKILL.md is a broken symlink — record and keep scanning siblings.
-        out.broken.push({ path: skillFile, scope });
+        out.broken.push({ path: skillFile, scanRoot });
         return;
       }
       throw err;
     }
     if (resolved.isFile()) {
-      out.skills.push(await describeSkill(skillFile, rootPath, scope));
+      out.skills.push(await describeSkill(skillFile, rootPath, scanRoot));
       return; // do not descend — subdirs are this skill's bundled assets
     }
   }
@@ -148,26 +154,26 @@ async function scanScope(scope, rootPath, out) {
         target = await stat(full); // follows the link
       } catch (err) {
         if (err && err.code === "ENOENT") {
-          out.broken.push({ path: full, scope });
+          out.broken.push({ path: full, scanRoot });
           continue;
         }
         throw err;
       }
       if (target.isDirectory()) {
-        await scanScope(scope, full, out);
+        await scanRootTree(scanRoot, full, out);
       }
       // A symlink to a file that is not SKILL.md is irrelevant to discovery.
       continue;
     }
 
     if (entry.isDirectory()) {
-      await scanScope(scope, full, out);
+      await scanRootTree(scanRoot, full, out);
     }
   }
 }
 
 // Build one skill occurrence entry, parsing frontmatter for version/provenance.
-async function describeSkill(skillFile, skillDir, scope) {
+async function describeSkill(skillFile, skillDir, scanRoot) {
   let frontmatter = {};
   try {
     const text = await readFile(skillFile, "utf8");
@@ -181,7 +187,7 @@ async function describeSkill(skillFile, skillDir, scope) {
     name,
     file: skillFile,
     dir: skillDir,
-    scope,
+    scanRoot,
     version: frontmatter.version ?? null,
     updated: frontmatter.updated ?? null,
     provenance: frontmatter.provenance ?? null,
@@ -190,21 +196,21 @@ async function describeSkill(skillFile, skillDir, scope) {
 
 // --- orchestration -----------------------------------------------------------
 
-function agentScopes(config, home) {
-  const scopes = [];
+function agentScanRoots(config, home) {
+  const roots = [];
   for (const key of config.agents) {
     const root = agentRoot(key, home);
-    if (root) scopes.push({ kind: "agent", ref: key, root });
+    if (root) roots.push({ kind: "agent", ref: key, root });
   }
-  return scopes;
+  return roots;
 }
 
-function pathScopes(kind, paths) {
+function pathScanRoots(kind, paths) {
   return paths.map((p) => ({ kind, ref: p, root: p }));
 }
 
 /**
- * Load config and scan every configured scope. Returns the inventory object
+ * Load config and scan every configured scan root. Returns the inventory object
  * (without writing it). One entry per physical skill occurrence; broken
  * symlinks recorded distinctly. Never throws on a malformed SKILL.md.
  *
@@ -214,25 +220,25 @@ function pathScopes(kind, paths) {
 export async function buildInventory(home = homedir()) {
   const config = await loadConfig(home);
 
-  const scopes = [
-    ...agentScopes(config, home),
-    ...pathScopes("vault", config.vaults),
-    ...pathScopes("project", config.projects),
+  const scanRoots = [
+    ...agentScanRoots(config, home),
+    ...pathScanRoots("vault", config.vaults),
+    ...pathScanRoots("project", config.projects),
   ];
 
   const out = { skills: [], broken: [] };
-  for (const scope of scopes) {
-    await scanScope(scope, scope.root, out);
+  for (const root of scanRoots) {
+    await scanRootTree(root, root.root, out);
   }
 
-  return finalizeInventory(scopes, out);
+  return finalizeInventory(scanRoots, out);
 }
 
-function finalizeInventory(scopes, out) {
-  const byScope = {};
+function finalizeInventory(scanRoots, out) {
+  const byScanRoot = {};
   for (const s of out.skills) {
-    const key = `${s.scope.kind}:${s.scope.ref}`;
-    byScope[key] = (byScope[key] ?? 0) + 1;
+    const key = `${s.scanRoot.kind}:${s.scanRoot.ref}`;
+    byScanRoot[key] = (byScanRoot[key] ?? 0) + 1;
   }
   return {
     version: 1,
@@ -240,8 +246,8 @@ function finalizeInventory(scopes, out) {
     counts: {
       skills: out.skills.length,
       broken: out.broken.length,
-      scopes: scopes.length,
-      byScope,
+      scanRoots: scanRoots.length,
+      byScanRoot,
     },
     skills: out.skills,
     broken: out.broken,

@@ -28,9 +28,9 @@ test("init discovers a skill in an agent root and writes the inventory cache", a
     const found = cache.skills.find((s) => s.name === "my-skill");
     assert.ok(found, `expected my-skill in inventory, got:\n${JSON.stringify(cache.skills)}`);
     assert.equal(found.file, planted.file);
-    assert.equal(found.scope.kind, "agent");
-    assert.equal(found.scope.ref, "claude");
-    assert.equal(found.scope.root, join(sb.home, ".claude", "skills"));
+    assert.equal(found.scanRoot.kind, "agent");
+    assert.equal(found.scanRoot.ref, "claude");
+    assert.equal(found.scanRoot.root, join(sb.home, ".claude", "skills"));
 
     assert.match(stdout, /1 skill/i, `expected a skill count in stdout, got:\n${stdout}`);
     assert.ok(
@@ -42,9 +42,9 @@ test("init discovers a skill in an agent root and writes the inventory cache", a
   }
 });
 
-// Slice B — skills planted across multiple scopes (two agent roots, a vault, and
-// a project dir) all appear, each tagged with its correct scope/location.
-test("init discovers skills across multiple scopes and tags each with its scope", async () => {
+// Slice B — skills planted across multiple scan roots (two agent roots, a vault,
+// and a project dir) all appear, each tagged with its correct scan root/location.
+test("init discovers skills across multiple scan roots and tags each with its scan root", async () => {
   const sb = await createSandbox({
     config: {
       store: "~/.skill-ninja/store",
@@ -69,18 +69,18 @@ test("init discovers skills across multiple scopes and tags each with its scope"
 
     const byName = Object.fromEntries(cache.skills.map((s) => [s.name, s]));
 
-    assert.equal(byName["claude-skill"].scope.kind, "agent");
-    assert.equal(byName["claude-skill"].scope.ref, "claude");
+    assert.equal(byName["claude-skill"].scanRoot.kind, "agent");
+    assert.equal(byName["claude-skill"].scanRoot.ref, "claude");
     assert.equal(byName["claude-skill"].file, join(sb.home, ".claude", "skills", "claude-skill", "SKILL.md"));
 
-    assert.equal(byName["zcode-skill"].scope.kind, "agent");
-    assert.equal(byName["zcode-skill"].scope.ref, "zcode");
+    assert.equal(byName["zcode-skill"].scanRoot.kind, "agent");
+    assert.equal(byName["zcode-skill"].scanRoot.ref, "zcode");
 
-    assert.equal(byName["vault-skill"].scope.kind, "vault");
-    assert.equal(byName["vault-skill"].scope.ref, join(sb.home, "Documents", "Vault"));
+    assert.equal(byName["vault-skill"].scanRoot.kind, "vault");
+    assert.equal(byName["vault-skill"].scanRoot.ref, join(sb.home, "Documents", "Vault"));
 
-    assert.equal(byName["project-skill"].scope.kind, "project");
-    assert.equal(byName["project-skill"].scope.ref, join(sb.home, "code", "myapp"));
+    assert.equal(byName["project-skill"].scanRoot.kind, "project");
+    assert.equal(byName["project-skill"].scanRoot.ref, join(sb.home, "code", "myapp"));
 
     assert.match(stdout, /4 skills/i, `expected 4 skills reported, got:\n${stdout}`);
   } finally {
@@ -143,8 +143,8 @@ test("init records a broken symlink and exits 0 without crashing", async () => {
 
     const found = cache.broken.find((b) => b.path === broken.link);
     assert.ok(found, `expected the broken symlink in cache.broken, got:\n${JSON.stringify(cache.broken)}`);
-    assert.equal(found.scope.kind, "agent");
-    assert.equal(found.scope.ref, "claude");
+    assert.equal(found.scanRoot.kind, "agent");
+    assert.equal(found.scanRoot.ref, "claude");
 
     // The good skill is still discovered alongside the broken link.
     assert.ok(cache.skills.find((s) => s.name === "good-skill"));
