@@ -1,0 +1,21 @@
+# Private notes / scratch
+walk-*
+.scratch/
+
+# Installed skill workspaces (regenerable via `npx skills` / external installers)
+.agents/
+.claude/
+skills-lock.json
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
