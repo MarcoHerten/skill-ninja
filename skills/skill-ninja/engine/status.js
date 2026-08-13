@@ -44,11 +44,20 @@ export function scanRootLabel(scanRoot) {
 }
 
 /**
- * Compact provenance summary; "provenance unknown" when absent or empty.
- * @param {object|null} provenance
+ * Compact provenance/tier summary. An External skill (attributed to skills.sh via
+ * its lockfile, ADR-0007/0008) is reported as external + its skills.sh source;
+ * otherwise the frontmatter provenance is summarized, with "provenance unknown"
+ * when absent or empty.
+ * @param {object} occ A skill occurrence (uses tier / external / provenance).
  * @returns {string}
  */
-export function provenanceSummary(provenance) {
+export function provenanceSummary(occ) {
+  if (occ?.tier === "external" && occ.external) {
+    const bits = ["external"];
+    if (occ.external.source) bits.push(`from ${occ.external.source}`);
+    return bits.join(", ");
+  }
+  const provenance = occ?.provenance;
   if (!provenance) return "provenance unknown";
   const bits = [];
   if (provenance.source) bits.push(provenance.source);
@@ -59,9 +68,9 @@ export function provenanceSummary(provenance) {
 
 // Personal-tier heuristic (ADR-0004): a skill occurrence is Personal if it lives
 // under the configured canonical store path, or its provenance.source is
-// "authored". The inventory carries no explicit tier, so this is the documented
-// interpretation the --personal filter applies.
+// "authored". External skills (owned by skills.sh) are never Personal.
 function isPersonal(occ, store) {
+  if (occ.tier === "external") return false;
   if (store) {
     const prefix = store.endsWith("/") ? store : store + "/";
     if (occ.dir === store || occ.dir.startsWith(prefix)) return true;
@@ -159,7 +168,7 @@ export function renderStatus(inventory, config, flags) {
         lines.push(`  ${g.name}${g.duplicate ? " [duplicate]" : ""}`);
         for (const occ of g.occurrences) {
           lines.push(`    ${scanRootLabel(occ.scanRoot)} - ${occ.dir}`);
-          lines.push(`      ${versionLine(occ)}  |  provenance: ${provenanceSummary(occ.provenance)}`);
+          lines.push(`      ${versionLine(occ)}  |  provenance: ${provenanceSummary(occ)}`);
         }
       }
     }

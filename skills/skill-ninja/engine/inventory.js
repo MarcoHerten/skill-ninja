@@ -110,9 +110,11 @@ function coerce(raw) {
  *
  * @param {{kind:string, ref:string, root:string}} scanRoot The scan-root descriptor.
  * @param {string} rootPath The directory to walk (starts at scanRoot.root).
+ * @param {object} attribution skills.sh lockfile attribution for this root
+ *   (name -> {source, computedHash}); empty when no lockfile applies.
  * @param {object} out Accumulator: `{ skills: [], broken: [] }`.
  */
-async function scanRootTree(scanRoot, rootPath, out) {
+async function scanRootTree(scanRoot, rootPath, attribution, out) {
   let entries;
   try {
     entries = await readdir(rootPath, { withFileTypes: true });
@@ -138,7 +140,7 @@ async function scanRootTree(scanRoot, rootPath, out) {
       throw err;
     }
     if (resolved.isFile()) {
-      out.skills.push(await describeSkill(skillFile, rootPath, scanRoot));
+      out.skills.push(await describeSkill(skillFile, rootPath, scanRoot, attribution));
       return; // do not descend — subdirs are this skill's bundled assets
     }
   }
@@ -160,20 +162,23 @@ async function scanRootTree(scanRoot, rootPath, out) {
         throw err;
       }
       if (target.isDirectory()) {
-        await scanRootTree(scanRoot, full, out);
+        await scanRootTree(scanRoot, full, attribution, out);
       }
       // A symlink to a file that is not SKILL.md is irrelevant to discovery.
       continue;
     }
 
     if (entry.isDirectory()) {
-      await scanRootTree(scanRoot, full, out);
+      await scanRootTree(scanRoot, full, attribution, out);
     }
   }
 }
 
 // Build one skill occurrence entry, parsing frontmatter for version/provenance.
-async function describeSkill(skillFile, skillDir, scanRoot) {
+// `attribution` carries skills.sh lockfile data (ADR-0007/0008): when the skill
+// name is recorded in a lockfile, the occurrence is tagged External (owned by
+// skills.sh). The stored scanRoot is kept lean (no attribution payload).
+async function describeSkill(skillFile, skillDir, scanRoot, attribution) {
   let frontmatter = {};
   try {
     const text = await readFile(skillFile, "utf8");
@@ -183,36 +188,62 @@ async function describeSkill(skillFile, skillDir, scanRoot) {
   }
 
   const name = (typeof frontmatter.name === "string" && frontmatter.name) || basename(skillDir);
+  const ext = attribution && attribution[name];
   return {
     name,
     file: skillFile,
     dir: skillDir,
-    scanRoot,
+    scanRoot: { kind: scanRoot.kind, ref: scanRoot.ref, root: scanRoot.root },
     version: frontmatter.version ?? null,
     updated: frontmatter.updated ?? null,
     provenance: frontmatter.provenance ?? null,
+    tier: ext ? "external" : null,
+    external: ext ? { source: ext.source, computedHash: ext.computedHash } : null,
   };
 }
 
-// --- orchestration -----------------------------------------------------------
+// --- skills.sh lockfile attribution (ADR-0007/0008) -------------------------
 
-function agentScanRoots(config, home) {
-  const roots = [];
-  for (const key of config.agents) {
-    const root = agentRoot(key, home);
-    if (root) roots.push({ kind: "agent", ref: key, root });
+// Read a skills-lock.json (skills.sh's record of the External skills it owns)
+// into a name -> {source, sourceType, computedHash} map. Missing or malformed
+// files contribute an empty map (attribution is best-effort, never fatal).
+async function readLockfile(path) {
+  let raw;
+  try {
+    raw = await readFile(path, "utf8");
+  } catch (err) {
+    return {};
   }
-  return roots;
+  try {
+    const parsed = JSON.parse(raw);
+    const skills = parsed && typeof parsed === "object" ? parsed.skills : null;
+    if (!skills || typeof skills !== "object") return {};
+    const map = {};
+    for (const [name, entry] of Object.entries(skills)) {
+      if (!entry || typeof entry !== "object") continue;
+      map[name] = {
+        source: typeof entry.source === "string" ? entry.source : null,
+        sourceType: typeof entry.sourceType === "string" ? entry.sourceType : null,
+        computedHash: typeof entry.computedHash === "string" ? entry.computedHash : null,
+      };
+    }
+    return map;
+  } catch {
+    return {};
+  }
 }
 
-function pathScanRoots(kind, paths) {
-  return paths.map((p) => ({ kind, ref: p, root: p }));
-}
+// --- orchestration -----------------------------------------------------------
 
 /**
  * Load config and scan every configured scan root. Returns the inventory object
  * (without writing it). One entry per physical skill occurrence; broken
  * symlinks recorded distinctly. Never throws on a malformed SKILL.md.
+ *
+ * Attribution: the global skills.sh lockfile (`~/skills-lock.json`) covers every
+ * agent root; a per-root lockfile (`<root>/skills-lock.json`) covers vault /
+ * project roots. Occurrences named in a lockfile are tagged External.
+ * (ADR-0007/0008.)
  *
  * @param {string} [home] $HOME to resolve from.
  * @returns {Promise<object>} The inventory object (ADR-0003 schema).
@@ -220,15 +251,24 @@ function pathScanRoots(kind, paths) {
 export async function buildInventory(home = homedir()) {
   const config = await loadConfig(home);
 
-  const scanRoots = [
-    ...agentScanRoots(config, home),
-    ...pathScanRoots("vault", config.vaults),
-    ...pathScanRoots("project", config.projects),
-  ];
+  // The global lockfile applies to every agent root.
+  const globalLock = await readLockfile(join(home, "skills-lock.json"));
+
+  const scanRoots = [];
+  for (const key of config.agents) {
+    const root = agentRoot(key, home);
+    if (root) scanRoots.push({ kind: "agent", ref: key, root, attribution: globalLock });
+  }
+  for (const p of config.vaults) {
+    scanRoots.push({ kind: "vault", ref: p, root: p, attribution: await readLockfile(join(p, "skills-lock.json")) });
+  }
+  for (const p of config.projects) {
+    scanRoots.push({ kind: "project", ref: p, root: p, attribution: await readLockfile(join(p, "skills-lock.json")) });
+  }
 
   const out = { skills: [], broken: [] };
-  for (const root of scanRoots) {
-    await scanRootTree(root, root.root, out);
+  for (const r of scanRoots) {
+    await scanRootTree(r, r.root, r.attribution, out);
   }
 
   return finalizeInventory(scanRoots, out);
