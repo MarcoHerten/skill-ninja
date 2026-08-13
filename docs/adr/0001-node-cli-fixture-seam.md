@@ -9,3 +9,8 @@ Tests spawn the engine's CLI entry — `node skills/skill-ninja/engine/cli.js <c
 ## Why
 
 This is the highest, most stable boundary: the **skill** (interface) drives the **engine** (muscle) via the CLI, and internal refactors — splitting or renaming modules — cannot break tests, because only the CLI contract (command in → stdout + filesystem out) is observed. It also fits the **tool asymmetry** model: every **agent root** and the **canonical store** resolve under `$HOME`, so pointing the engine at a fake `$HOME` is sufficient to fake the whole landscape.
+
+## Conventions
+
+- **Test directory is `tests/` (plural)** so the literal `node --test` script does not pick up helpers as no-op tests. (Node's default discovery treats every `.js` under a `test/` dir as a test.) New tests are `*.test.js` files under `tests/`, helpers go under `tests/helpers/`.
+- **The harness imports no engine code.** To stay a black box it deliberately keeps a local copy of the agent-root model and `~`-expansion. This duplication is intentional (an independent assertion source), not a smell to refactor away.
