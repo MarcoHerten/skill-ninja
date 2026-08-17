@@ -27,6 +27,7 @@ import { renderDiff } from "./diff.js";
 import { resolveSkillFromSource } from "./source.js";
 import { linkSkill } from "./links.js";
 import { findComparableSkills, renderComparables } from "./compare.js";
+import { tryCommit, tryPush } from "./git.js";
 
 const sha256 = (s) => createHash("sha256").update(s, "utf8").digest("hex");
 const today = () => new Date().toISOString().slice(0, 10);
@@ -167,56 +168,8 @@ function stampFrontmatter(stamps, body) {
 // --- git commit + push (ADR-0007) -------------------------------------------
 // The canonical store is a git repo with an optional private remote. `add`
 // commits the new skill AND pushes it to the remote when one is configured;
-// with no remote it commits locally and skips push silently.
-
-function isGitRepo(dir) {
-  try {
-    execFileSync("git", ["-C", dir, "rev-parse", "--is-inside-work-tree"], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// The first configured remote name (typically "origin"), or null if none.
-function firstRemote(store) {
-  try {
-    const out = execFileSync("git", ["-C", store, "remote"], { encoding: "utf8" });
-    const name = out.split(/\r?\n/).map((s) => s.trim()).find(Boolean);
-    return name || null;
-  } catch {
-    return null;
-  }
-}
-
-function tryCommit(store, name) {
-  if (!isGitRepo(store)) return false;
-  try {
-    execFileSync("git", ["-C", store, "add", "--", name], { stdio: "ignore" });
-    execFileSync(
-      "git",
-      ["-C", store, "-c", "user.name=Skill Ninja", "-c", "user.email=skill-ninja@local", "commit", "-q", "-m", `add skill ${name}`],
-      { stdio: "ignore" },
-    );
-    return true;
-  } catch {
-    return false; // nothing to commit, or a hook rejected it — skip silently
-  }
-}
-
-// Push the just-committed skill to the private remote. Sets upstream on the
-// first push so a freshly-init'd store pushes without extra setup. Skipped
-// silently (returns false) when no remote is configured or the push fails.
-function tryPush(store) {
-  const remote = firstRemote(store);
-  if (!remote) return false;
-  try {
-    execFileSync("git", ["-C", store, "push", "-q", "-u", remote, "HEAD"], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
+// with no remote it commits locally and skips push silently. The git calls
+// themselves live in git.js, shared with `ingest --apply`'s batch commit.
 
 // --- command -----------------------------------------------------------------
 
@@ -352,7 +305,7 @@ export async function addCommand(args) {
 
   // 5. Commit + push (ADR-0007): commit the skill, then push to the private
   //    remote if one is configured (skipped silently otherwise).
-  const committed = tryCommit(store, resolved.name);
+  const committed = tryCommit(store, [resolved.name], `add skill ${resolved.name}`);
   const pushed = committed ? tryPush(store) : false;
 
   // 6. Summary.

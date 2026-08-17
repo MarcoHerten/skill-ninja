@@ -27,7 +27,7 @@ const COMMANDS = {
   doctor: "Detect and repair problems (broken links, duplicates, orphans).",
   add: "Ingest a new skill safely, with provenance recorded.",
   diff: "Show what changed in a skill since the stored version.",
-  ingest: "Analyze a directory of skills/prompts: classify, cluster, propose winners (dry run; --apply in a later build).",
+  ingest: "Analyze a directory of skills/prompts: classify, cluster, propose winners (--apply stores them in one commit).",
   config: "Show Skill Ninja's configuration (try: config show).",
 };
 

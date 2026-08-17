@@ -16,7 +16,7 @@ Skill Ninja runs **inside your coding agent**, on top of the skills [skills.sh](
 - **`/ninja status`** — one inventory view: per-agent reachability, copy-vs-symlink, global-vs-project, duplicates, broken symlinks, versions, and provenance.
 - **`/ninja doctor`** — detects and repairs problems (broken links, duplicates, orphans), with your approval for each fix.
 - **`/ninja add`** — ingests a skill that didn't come through skills.sh (a friend, a download, a bare prompt): safety check, diff, provenance + content-hash stamp, and install. Versioned in your private GitHub repo.
-- **`/ninja ingest`** *(dry run live, v1.1)* — point it at a messy directory (a skills export, a prompt library): it classifies everything, clusters the variants, and reports what it would keep — one winner per cluster, losers with hashes and reasons, junk, safety findings, and side-by-sides for the divergent duplicates no rule can resolve. On `--apply` it stores the winners, versioned in one commit — the source is never touched, nothing is auto-linked.
+- **`/ninja ingest`** *(live, v1.1)* — point it at a messy directory (a skills export, a prompt library): it classifies everything, clusters the variants, and reports what it would keep — one winner per cluster, losers with hashes and reasons, junk, safety findings, and side-by-sides for the divergent duplicates no rule can resolve. On `--apply` it stores the winners, versioned in one commit — the source is never touched, nothing is auto-linked, and re-ingesting is a no-op for unchanged skills.
 - **`/ninja diff`** — shows what changed in a skill since you stored it ("my friend sent v2 — what's new?"), or against the upstream skills.sh source.
 
 Your **personal** skills live in a **local canonical store** — a git repo with an optional **private remote** for versioning. Skills you installed via skills.sh stay owned by skills.sh; Skill Ninja watches over everything.
@@ -74,7 +74,7 @@ The curated path for a single skill that didn't come through skills.sh: safety c
 /ninja ingest ~/Downloads/skills-export
 ```
 
-The bulk path: the export with the same skill as folder, `.zip`, `.skill`, *and* `.skill.zip`; the prompt library that was never skills at all. The dry run classifies every item, clusters the variants, and reports the proposed resolution — winner per cluster with its reason, losers with content hashes, junk, a safety column, and `needs-decision` side-by-sides for divergent duplicates. Walk the report, decide the conflicts, then `--apply` (shipping with v1.1) stores the winners in one commit. The source directory is never modified; nothing is auto-linked into your agents — keep your context lean and link deliberately via `add`.
+The bulk path: the export with the same skill as folder, `.zip`, `.skill`, *and* `.skill.zip`; the prompt library that was never skills at all. The dry run classifies every item, clusters the variants, and reports the proposed resolution — winner per cluster with its reason, losers with content hashes, junk, a safety column, and `needs-decision` side-by-sides for divergent duplicates. Walk the report, decide the conflicts, then `--apply` stores the winners in one commit (pushed when a remote is wired) — needs-decision clusters are skipped, never auto-decided. The source directory is never modified; nothing is auto-linked into your agents — keep your context lean and link deliberately via `add`.
 
 ### 7. Something changed → `diff`
 
@@ -96,7 +96,7 @@ The bulk path: the export with the same skill as folder, `.zip`, `.skill`, *and*
 
 ## Status
 
-🚧 **Early — v1.0 command surface implemented; v1.1 bulk ingest under construction.** v1.0 is live: `init` (bootstrap + scan), `status`, `doctor`, `add` (safety check, stamping, commit + push), `diff`. The v1.1 `ingest` dry run is live end to end — classification, deterministic cluster resolution (winners / losers / needs-decision with side-by-sides), prompt wrapping, and the safety column ([ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)); `--apply` (store the winners, one commit) follows. The skill is invoked as `/ninja` (e.g. `/ninja init`). See [`SPEC.md`](./SPEC.md), [`CONTEXT.md`](./CONTEXT.md), and [`docs/adr/`](./docs/adr).
+🚧 **Early — v1.0 command surface implemented; v1.1 bulk ingest live.** v1.0 is live: `init` (bootstrap + scan), `status`, `doctor`, `add` (safety check, stamping, commit + push), `diff`. The v1.1 `ingest` pipeline is live end to end — classification, deterministic cluster resolution (winners / losers / needs-decision with side-by-sides), prompt wrapping, the safety column, and `--apply` (store the winners with provenance in one commit + push, idempotent re-ingest) ([ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)). The skill is invoked as `/ninja` (e.g. `/ninja init`). See [`SPEC.md`](./SPEC.md), [`CONTEXT.md`](./CONTEXT.md), and [`docs/adr/`](./docs/adr).
 
 ## Install
 
@@ -109,7 +109,7 @@ Distribution via [skills.sh](https://skills.sh) (`npx skills`) — multi-agent t
 ## Roadmap
 
 - **v1.0** ✅ — `init`, `status`, `doctor`, `add` (+ safety check), `diff`
-- **v1.1** — `ingest` (bulk pipeline for messy skill/prompt directories — [ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)): dry run ✅, `--apply` next; static HTML status page
+- **v1.1** — `ingest` (bulk pipeline for messy skill/prompt directories — [ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)) ✅; static HTML status page
 
 ## Design principles
 

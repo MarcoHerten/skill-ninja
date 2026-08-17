@@ -1,16 +1,21 @@
-// Black-box tests for `ninja ingest <dir>` — the v1.1 bulk pipeline's dry-run
-// analysis phase (ADR-0009). Ticket 01: every candidate in a messy source
-// directory is classified (skill package in any packaging / prompt document /
-// junk, each with a reason) and carries its normalized identity, nothing on
-// disk is modified. Ticket 02: prompt documents render the exact wrapped skill
-// `--apply` would store (ADR-0010). Ticket 03: candidates cluster by identity;
-// one winner per cluster is proposed deterministically (byte-identical members
-// collapse, packaging picks among identical copies, an explicit version signal
-// orders divergent content), losers are listed with hash and loss reason,
-// divergent duplicates become needs-decision with a side-by-side, and the
-// static safety check is a column on every candidate line. Tests plant fixture
-// directories in a sandboxed fake $HOME and assert only on the CLI's stdout and
-// the filesystem (ADR-0001 seam).
+// Black-box tests for `ninja ingest <dir>` — the v1.1 bulk pipeline (ADR-0009).
+// Ticket 01: every candidate in a messy source directory is classified (skill
+// package in any packaging / prompt document / junk, each with a reason) and
+// carries its normalized identity, nothing on disk is modified. Ticket 02:
+// prompt documents render the exact wrapped skill `--apply` would store
+// (ADR-0010). Ticket 03: candidates cluster by identity; one winner per cluster
+// is proposed deterministically (byte-identical members collapse, packaging
+// picks among identical copies, an explicit version signal orders divergent
+// content), losers are listed with hash and loss reason, divergent duplicates
+// become needs-decision with a side-by-side, and the static safety check is a
+// column on every candidate line. Ticket 04: `--apply` stores exactly the
+// winners with provenance stamps (batch label, superseded lineage), links
+// nothing, leaves the source untouched, and lands the run as one commit
+// (+ push); needs-decision clusters are skipped, never auto-decided, and
+// re-ingest is idempotent (identical -> already stored, changed -> a
+// needs-decision against the stored copy). Tests plant fixture directories in
+// a sandboxed fake $HOME and assert only on the CLI's stdout and the
+// filesystem (ADR-0001 seam).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -19,11 +24,14 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 
-import { createSandbox, runCli } from "./helpers/harness.js";
+import { createSandbox, runCli, storePath, makeStoreGitRepo, readStoredSkill, parseStamps } from "./helpers/harness.js";
 
 // Independent SHA-256 for asserting content hashes against known content
 // (never recomputed via engine code).
 const sha256 = (s) => createHash("sha256").update(s, "utf8").digest("hex");
+
+// The run date the ADR-0005 stamps carry (computed independently of the engine).
+const today = () => new Date().toISOString().slice(0, 10);
 
 // Escape a literal for embedding in a RegExp.
 const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -421,10 +429,11 @@ test("ingest argument errors exit non-zero with plain-language messages", async 
     assert.equal(badFlag.exitCode, 2);
     assert.match(badFlag.stderr, /unknown option/);
 
-    // --apply is a designed surface but a later ticket's — it says so clearly.
-    const apply = await runCli(sb.home, ["ingest", src, "--apply"]);
-    assert.equal(apply.exitCode, 2);
-    assert.match(apply.stderr, /--apply.*not implemented/);
+    // --apply writes the store, so it needs the configured landscape — the
+    // same gates `add` uses (checked in the apply slices below with a config).
+    const applyNoConfig = await runCli(sb.home, ["ingest", src, "--apply"]);
+    assert.equal(applyNoConfig.exitCode, 2);
+    assert.match(applyNoConfig.stderr, /Run `ninja init` first/);
   } finally {
     await sb.cleanup();
   }
@@ -921,6 +930,432 @@ test("a losing prompt variant gets no wrap preview — only the winner's", async
     const wrapCount = (stdout.match(/wrap preview ->/g) ?? []).length;
     assert.equal(wrapCount, 1, `exactly one wrap preview (the winner), got ${wrapCount}:\n${stdout}`);
     assert.match(stdout, /wrap preview -> anti-ai-writing\/SKILL\.md/, `got:\n${stdout}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// --- Ticket 04 — `--apply`: store winners, stamp, one commit --------------------
+
+// Slice 1 — apply stores exactly the winners: stamped SKILL.md at
+// <store>/<identity>/, the skill's own description preserved, bundled assets
+// copied, a non-standard skill file name normalized into the stored SKILL.md.
+test("apply stores winners with provenance stamps, preserved frontmatter, and assets", async () => {
+  const sb = await createSandbox();
+  try {
+    const src = join(sb.home, "export");
+    await plantPackage(src, "toolkit", {
+      frontmatter: "name: toolkit\ndescription: Werkzeuge für alles\n",
+      body: "# Toolkit\n",
+      files: { "scripts/run.sh": "echo x\n", "assets/helper.py": "print('x')\n" },
+    });
+    // A folder whose skill file carries a non-standard name — the stored form
+    // is <store>/<identity>/SKILL.md regardless.
+    await mkdir(join(src, "kalliope"), { recursive: true });
+    await writeFile(
+      join(src, "kalliope", "kalliope-SKILL.md"),
+      "---\nname: kalliope\n---\n# Kalliope\n",
+      "utf8",
+    );
+    await writeFile(join(src, "Mist.txt"), "x\n", "utf8");
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src, "--apply"]);
+
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+    const store = storePath(sb.home);
+    const s = parseStamps(await readStoredSkill(sb.home, "toolkit"));
+    assert.equal(s.name, "toolkit");
+    assert.equal(s.description, "Werkzeuge für alles"); // the skill's own frontmatter survives stamping
+    assert.equal(s.version, "1.0.0");
+    assert.equal(s.updated, today());
+    assert.equal(s.hash, sha256("# Toolkit\n"));
+    assert.deepEqual(s.provenance, {
+      source: "received",
+      from: "export", // the batch label — the ingest directory's basename
+      imported: today(),
+      derived_from: null,
+      relation: null,
+    });
+    assert.ok((await readStoredSkill(sb.home, "toolkit")).includes("# Toolkit\n"));
+    // Bundled assets travel with the winner.
+    assert.equal(await readFile(join(store, "toolkit", "scripts", "run.sh"), "utf8"), "echo x\n");
+    assert.equal(await readFile(join(store, "toolkit", "assets", "helper.py"), "utf8"), "print('x')\n");
+    // The non-standard skill file is stored AS SKILL.md under the identity.
+    const kal = await readStoredSkill(sb.home, "kalliope");
+    assert.ok(kal.includes("name: kalliope"));
+    assert.ok(kal.includes("# Kalliope"));
+    // The applied summary lists the stored winners and the junk count.
+    assert.match(stdout, /Stored 2 skills:/, `got:\n${stdout}`);
+    assert.match(stdout, /stored\s+toolkit\s+hash [0-9a-f]{8}…\s+skill package/, `got:\n${stdout}`);
+    assert.match(stdout, /stored\s+kalliope\s+hash [0-9a-f]{8}…\s+skill package/, `got:\n${stdout}`);
+    assert.match(stdout, /Junk: 1 \(skipped, never deleted/, `got:\n${stdout}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 2 — the stored prompt winner is byte-identical to its dry-run wrap
+// preview (ADR-0010's "the exact wrapped skill --apply would store").
+test("apply stores a prompt winner byte-identical to its wrap preview", async () => {
+  const sb = await createSandbox();
+  try {
+    const src = join(sb.home, "Bibliothek");
+    await mkdir(src, { recursive: true });
+    await writeFile(join(src, "Ein-Prompt.md"), "---\ntags: [x]\n---\nDu bist ein Tester.\n", "utf8");
+
+    const dry = await runCli(sb.home, ["ingest", src]);
+    assert.equal(dry.exitCode, 0);
+    const preview = extractWrapPreview(dry.stdout, "ein-prompt");
+    // The batch label follows the directory basename, not a hardcoded "export".
+    assert.ok(preview.includes('from: "Bibliothek"'), `got:\n${preview}`);
+
+    const applied = await runCli(sb.home, ["ingest", src, "--apply"]);
+    assert.equal(applied.exitCode, 0, `expected exit 0, stdout:\n${applied.stdout}`);
+    assert.equal(await readStoredSkill(sb.home, "ein-prompt"), preview + "\n");
+    assert.match(applied.stdout, /stored\s+ein-prompt\s+hash [0-9a-f]{8}…\s+prompt document \(needs-review\)/);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 3 — the whole run lands as exactly one commit naming the batch and the
+// counts; pushed when a remote is configured, commit-only otherwise.
+test("apply commits the batch exactly once and pushes when a remote is configured", async () => {
+  const sb = await createSandbox();
+  try {
+    const store = makeStoreGitRepo(sb.home);
+    const src = join(sb.home, "export");
+    await plantPackage(src, "alpha", { frontmatter: "name: alpha\n" });
+    await plantPackage(src, "beta", { frontmatter: "name: beta\n" });
+    await writeFile(join(src, "junk.pdf"), "%PDF-1.4 fake\n", "utf8");
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src, "--apply"]);
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+
+    const subjects = execFileSync("git", ["-C", store, "log", "--format=%s"], { encoding: "utf8" })
+      .split("\n")
+      .filter(Boolean);
+    assert.deepEqual(subjects, ["ingest export: 2 stored, 0 conflicts skipped, 1 junk"]);
+    assert.match(stdout, /Committed to /, `got:\n${stdout}`);
+    assert.doesNotMatch(stdout, /Pushed/, `no remote configured — commit only, got:\n${stdout}`);
+
+    // With a bare private remote: the same single commit is pushed.
+    const sb2 = await createSandbox();
+    try {
+      const store2 = makeStoreGitRepo(sb2.home);
+      const remote = join(sb2.home, "remote.git");
+      execFileSync("git", ["init", "-q", "--bare", remote], { stdio: "ignore" });
+      execFileSync("git", ["-C", store2, "remote", "add", "origin", remote], { stdio: "ignore" });
+      const src2 = join(sb2.home, "ausfuhr");
+      await plantPackage(src2, "gamma", { frontmatter: "name: gamma\n" });
+
+      const r2 = await runCli(sb2.home, ["ingest", src2, "--apply"]);
+      assert.equal(r2.exitCode, 0, `expected exit 0, stdout:\n${r2.stdout}`);
+      assert.match(r2.stdout, /Pushed to the private remote\./, `got:\n${r2.stdout}`);
+      const remoteSubjects = execFileSync("git", ["-C", remote, "log", "--all", "--format=%s"], { encoding: "utf8" });
+      assert.match(remoteSubjects, /ingest ausfuhr: 1 stored/, `got:\n${remoteSubjects}`);
+    } finally {
+      await sb2.cleanup();
+    }
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 4 — store-only: nothing is linked into any agent root, and the source
+// directory is untouched after apply (read-only on the source, ADR-0009).
+test("apply links nothing and leaves the source directory untouched", async () => {
+  const sb = await createSandbox();
+  try {
+    const src = join(sb.home, "export");
+    await plantPackage(src, "solo", { frontmatter: "name: solo\n" });
+    const beforeSrc = await snapshot(src);
+
+    const { exitCode } = await runCli(sb.home, ["ingest", src, "--apply"]);
+    assert.equal(exitCode, 0);
+
+    assert.deepEqual(await snapshot(src), beforeSrc, "apply must not modify the source directory");
+    for (const sub of [".claude/skills", ".zcode/skills"]) {
+      const entries = await readdir(join(sb.home, sub), { withFileTypes: true });
+      assert.equal(entries.length, 0, `agent root ${sub} must stay empty — ingest stores, it never links`);
+    }
+    assert.ok((await readStoredSkill(sb.home, "solo")).includes("name: solo"));
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 5 — unresolved needs-decision clusters are never auto-decided: apply
+// skips them, says so, and stores only the resolved winners.
+test("apply skips needs-decision clusters, lists them, and stores the rest", async () => {
+  const sb = await createSandbox();
+  try {
+    const src = join(sb.home, "export");
+    await plantPackage(src, "klar", { frontmatter: "name: klar\n" });
+    // Divergent duplicates, no version signal — the needs-decision pathology.
+    await plantPackage(src, "zwie-a", { frontmatter: "name: zwie\n", body: "# Variante A\n" });
+    await plantPackage(src, "zwie-b", { frontmatter: "name: zwie\n", body: "# Variante B\n" });
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src, "--apply"]);
+
+    assert.equal(exitCode, 0, `a run with skipped conflicts still exits 0, stdout:\n${stdout}`);
+    assert.match(stdout, /Stored 1 skill:/, `got:\n${stdout}`);
+    assert.match(stdout, /Skipped 1 conflict \(needs-decision — never auto-decided\):/, `got:\n${stdout}`);
+    assert.match(stdout, /skipped\s+zwie\s+2 candidates, 2 variants — decide via the dry-run report/, `got:\n${stdout}`);
+    await assert.rejects(readStoredSkill(sb.home, "zwie"));
+    assert.ok((await readStoredSkill(sb.home, "klar")).includes("name: klar"));
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 6 — the discarded losers of stored winners are listed in the applied
+// summary (reported, never stored — the source keeps them).
+test("the applied summary lists discarded losers with hash and reason", async () => {
+  const sb = await createSandbox();
+  try {
+    const src = join(sb.home, "export");
+    const skillMd = "---\nname: board\n---\n# Board\n";
+    await mkdir(join(src, "board"), { recursive: true });
+    await writeFile(join(src, "board", "SKILL.md"), skillMd, "utf8");
+    await makeZip(src, "board.zip", { "SKILL.md": skillMd });
+    await makeZip(src, "board.skill", { "wrap/SKILL.md": skillMd });
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src, "--apply"]);
+
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+    const h = sha256("# Board\n").slice(0, 8);
+    assert.match(stdout, /Discarded 2 losers \(reported, never stored — the source keeps them\):/, `got:\n${stdout}`);
+    for (const arc of ["board.zip", "board.skill"]) {
+      assert.match(stdout, new RegExp(`loser\\s+${reEsc(arc)}\\s+hash ${h}…\\s+identical content; folder beats archive`), `got:\n${stdout}`);
+    }
+    // Only the winner is in the store.
+    const store = storePath(sb.home);
+    const entries = await readdir(join(store, "board"), { withFileTypes: true });
+    assert.deepEqual(entries.map((e) => e.name), ["SKILL.md"]);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 7 — a version-cluster winner records its superseded variants in
+// provenance.derived_from (the lineage, ADR-0009 "losers are not stored").
+test("a winner's derived_from records the superseded variant hashes", async () => {
+  const sb = await createSandbox();
+  try {
+    const src = join(sb.home, "export");
+    await plantPackage(src, "edge-v2", { frontmatter: "name: edge\n", body: "# Edge alt\n" });
+    await plantPackage(src, "edge-v3", { frontmatter: "name: edge\n", body: "# Edge Mitte\n" });
+    await plantPackage(src, "edge-v4", { frontmatter: "name: edge\n", body: "# Edge neu\n" });
+
+    const { exitCode } = await runCli(sb.home, ["ingest", src, "--apply"]);
+    assert.equal(exitCode, 0);
+
+    const stored = await readStoredSkill(sb.home, "edge");
+    const s = parseStamps(stored);
+    assert.equal(s.hash, sha256("# Edge neu\n"));
+    assert.equal(
+      s.provenance.derived_from,
+      [sha256("# Edge alt\n"), sha256("# Edge Mitte\n")].join(", "),
+    );
+    assert.ok(stored.includes("# Edge neu"));
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 8 — a wrapped prompt winner that superseded older prompt variants
+// records the lineage too; the dry-run preview stays the pre-cluster form
+// (derived_from: null), so stored == preview except for the lineage field.
+test("a wrapped prompt winner records lineage; the preview stays pre-cluster", async () => {
+  const sb = await createSandbox();
+  try {
+    const src = join(sb.home, "export");
+    await mkdir(src, { recursive: true });
+    await writeFile(join(src, "Anti-AI-Writing-v3.md"), "Schreibe menschlich (alt).\n", "utf8");
+    await writeFile(join(src, "Anti-AI-Writing-v4.md"), "Schreibe menschlich.\n", "utf8");
+
+    const dry = await runCli(sb.home, ["ingest", src]);
+    assert.equal(dry.exitCode, 0);
+    assert.match(dry.stdout, /derived_from: null/, `the preview is the pre-cluster wrap, got:\n${dry.stdout}`);
+
+    const applied = await runCli(sb.home, ["ingest", src, "--apply"]);
+    assert.equal(applied.exitCode, 0, `expected exit 0, stdout:\n${applied.stdout}`);
+    const lineage = sha256("Schreibe menschlich (alt).\n");
+    const s = parseStamps(await readStoredSkill(sb.home, "anti-ai-writing"));
+    assert.equal(s.provenance.derived_from, lineage);
+    const preview = extractWrapPreview(dry.stdout, "anti-ai-writing");
+    assert.equal(
+      await readStoredSkill(sb.home, "anti-ai-writing"),
+      preview.replace("derived_from: null", `derived_from: ${lineage}`) + "\n",
+    );
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 9 — an archive winner (its version signal beat the folder's) stores the
+// archive's skill content plus the assets under the skill member's directory —
+// the package root — and nothing outside it.
+test("an archive winner stores its content and package-root assets", async () => {
+  const sb = await createSandbox();
+  try {
+    const src = join(sb.home, "export");
+    await plantPackage(src, "mix", { frontmatter: "name: mix\n", body: "# Mix alt\n" });
+    await makeZip(src, "mix-v4.zip", {
+      "wrap/SKILL.md": "---\nname: mix\n---\n# Mix neu\n",
+      "wrap/scripts/run.sh": "echo x\n",
+      "anderes/ignore.txt": "outside the package root\n",
+    });
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src, "--apply"]);
+
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+    const stored = await readStoredSkill(sb.home, "mix");
+    assert.ok(stored.includes("# Mix neu"), `the archive's (newer) content wins, got:\n${stored}`);
+    assert.ok(stored.includes("hash: " + sha256("# Mix neu\n")));
+    const store = storePath(sb.home);
+    assert.equal(await readFile(join(store, "mix", "scripts", "run.sh"), "utf8"), "echo x\n");
+    await assert.rejects(stat(join(store, "mix", "anderes")), /ENOENT/);
+    // The folder it beat is the discarded loser.
+    assert.match(stdout, /loser\s+mix\/\s+hash [0-9a-f]{8}…\s+no version signal \(winner carries v4\)/, `got:\n${stdout}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 10 — re-ingest is idempotent (ADR-0009): an unchanged directory
+// re-applied stores nothing, commits nothing, and the report says why.
+test("re-applying an unchanged directory is a no-op (already stored)", async () => {
+  const sb = await createSandbox();
+  try {
+    const store = makeStoreGitRepo(sb.home);
+    const src = join(sb.home, "export");
+    await plantPackage(src, "stabil", { frontmatter: "name: stabil\n" });
+
+    const first = await runCli(sb.home, ["ingest", src, "--apply"]);
+    assert.equal(first.exitCode, 0);
+    const storeBefore = await snapshot(join(store, "stabil"));
+
+    const second = await runCli(sb.home, ["ingest", src, "--apply"]);
+    assert.equal(second.exitCode, 0, `expected exit 0, stdout:\n${second.stdout}`);
+    assert.match(second.stdout, /Already stored 1 skill \(identical content — nothing to do\):/, `got:\n${second.stdout}`);
+    assert.match(second.stdout, /No commit — nothing new was stored\./, `got:\n${second.stdout}`);
+    assert.deepEqual(await snapshot(join(store, "stabil")), storeBefore, "nothing rewritten");
+    const count = execFileSync("git", ["-C", store, "rev-list", "--count", "HEAD"], { encoding: "utf8"}).trim();
+    assert.equal(count, "1", "the idempotent re-run adds no commit");
+
+    // The dry run reports the state too — the winner is already in the store.
+    const dry = await runCli(sb.home, ["ingest", src]);
+    assert.equal(dry.exitCode, 0);
+    assert.match(
+      dry.stdout,
+      /winner\s+stabil\/\s+skill package\s+folder containing SKILL\.md; already stored — identical content, nothing to do/,
+      `got:\n${dry.stdout}`,
+    );
+    assert.match(dry.stdout, /1 already stored/, `got:\n${dry.stdout}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 11 — a changed winner (the source directory was updated) becomes a
+// needs-decision against the stored copy — never a silent overwrite: the
+// side-by-side includes the stored version, and apply leaves the store alone.
+test("a changed winner becomes needs-decision against the stored copy; the store stays put", async () => {
+  const sb = await createSandbox();
+  try {
+    const src = join(sb.home, "export");
+    const pkg = join(src, "wandeln");
+    await mkdir(pkg, { recursive: true });
+    await writeFile(join(pkg, "SKILL.md"), "---\nname: wandeln\n---\n# V1\n", "utf8");
+
+    const first = await runCli(sb.home, ["ingest", src, "--apply"]);
+    assert.equal(first.exitCode, 0);
+
+    // The source's winner changes (an updated export of the same skill).
+    await writeFile(join(pkg, "SKILL.md"), "---\nname: wandeln\n---\n# V2\n", "utf8");
+    const store = storePath(sb.home);
+
+    const dry = await runCli(sb.home, ["ingest", src]);
+    assert.equal(dry.exitCode, 0);
+    assert.match(dry.stdout, /wandeln \(1 candidate\) — NEEDS DECISION: the stored version differs/, `got:\n${dry.stdout}`);
+    assert.doesNotMatch(dry.stdout, /winner\s+wandeln/, `no winner may be proposed over stored content, got:\n${dry.stdout}`);
+    // The stored copy is a variant of the side-by-side, with diff stats.
+    assert.match(dry.stdout, /variant 2\s+hash [0-9a-f]{8}…\s+2 lines\s+1 member\s+\(1 changed vs variant 1\)/, `got:\n${dry.stdout}`);
+    assert.match(dry.stdout, new RegExp("^\\s+" + reEsc(store) + "/wandeln/$", "m"), `the stored copy's location, got:\n${dry.stdout}`);
+
+    const second = await runCli(sb.home, ["ingest", src, "--apply"]);
+    assert.equal(second.exitCode, 0, `expected exit 0, stdout:\n${second.stdout}`);
+    assert.match(second.stdout, /Skipped 1 conflict/, `got:\n${second.stdout}`);
+    const stored = await readStoredSkill(sb.home, "wandeln");
+    assert.ok(stored.includes("# V1\n"), "the stored version is not silently replaced");
+    assert.ok(!stored.includes("# V2"));
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 12 — needs-review winners store as-is: the stamps go on top, the
+// original text (damaged frontmatter included) is preserved as the body, and
+// the applied summary keeps the needs-review marking visible.
+test("a needs-review winner with damaged frontmatter is stored as-is", async () => {
+  const sb = await createSandbox();
+  try {
+    const src = join(sb.home, "export");
+    await mkdir(src, { recursive: true });
+    await writeFile(join(src, "SKILL_BROKEN.md"), "---\nname: unclosed\n\n# Body never separated\n", "utf8");
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src, "--apply"]);
+
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+    const stored = await readStoredSkill(sb.home, "skill-broken");
+    assert.ok(stored.startsWith("---\nname: skill-broken\n"), `stamps on top, got:\n${stored}`);
+    assert.ok(stored.includes("# Body never separated"), `the original text survives, got:\n${stored}`);
+    assert.match(stdout, /stored\s+skill-broken\s+hash [0-9a-f]{8}…\s+skill package \(needs-review\)/, `got:\n${stdout}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 13 — error paths: apply writes the store, so it needs the configured
+// landscape — the same gates `add` uses.
+test("apply requires a configuration with a canonical store", async () => {
+  const sb = await createSandbox({ config: { store: null, agents: [], vaults: [], projects: [] } });
+  try {
+    const src = join(sb.home, "export");
+    await plantPackage(src, "x", { frontmatter: "name: x\n" });
+
+    const r = await runCli(sb.home, ["ingest", src, "--apply"]);
+    assert.equal(r.exitCode, 2);
+    assert.match(r.stderr, /No canonical store configured/);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 14 — a directory with nothing storeable (junk only): exit 0, nothing
+// stored, no commit.
+test("apply over a junk-only directory stores nothing and commits nothing", async () => {
+  const sb = await createSandbox();
+  try {
+    const store = makeStoreGitRepo(sb.home);
+    const src = join(sb.home, "export");
+    await mkdir(src, { recursive: true });
+    await writeFile(join(src, "README.md"), "# Export readme\n", "utf8");
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src, "--apply"]);
+
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+    assert.match(stdout, /Nothing to store\./, `got:\n${stdout}`);
+    assert.match(stdout, /No commit — nothing new was stored\./, `got:\n${stdout}`);
+    let subjects = "";
+    try {
+      subjects = execFileSync("git", ["-C", store, "log", "--format=%s"], { encoding: "utf8" });
+    } catch {
+      // no commits at all — exactly right
+    }
+    assert.equal(subjects, "");
   } finally {
     await sb.cleanup();
   }

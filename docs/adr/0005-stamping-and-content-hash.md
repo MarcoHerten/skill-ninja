@@ -95,3 +95,23 @@ version N+1's content back to version N. This is the lineage `diff` walks
 - The hash is a content identity, not a security guarantee — a crafted skill can
   still hash to anything; trust comes from **Provenance** + the safety check, not
   the hash.
+
+## Update (2026-08-17 — bulk `ingest`, ADR-0009/0010)
+
+The v1.1 bulk pipeline stores winners with the same stamp block and the same
+body-only hash, with two refinements this ADR now covers explicitly:
+
+- **Unstamped incoming frontmatter is preserved, not replaced.** `add` keeps
+  only `description` (and `relation`) from incoming frontmatter; `ingest`
+  keeps every non-stamped line verbatim (the kept-lines mechanism ADR-0010
+  introduced for wrapped prompts — `tags`, `category`, custom keys survive).
+  This generalizes SPEC.md's implementation decision ("stamps add to the
+  skill's own frontmatter without dropping it; the `description` is
+  preserved"); stamped keys always win. The body and its hash are unaffected —
+  frontmatter is never hashed.
+- **`derived_from` may carry a lineage list.** Under `ingest`, a cluster
+  winner that superseded divergent variants records their content hashes
+  comma-joined (`derived_from: <hash>, <hash>, …`), per ADR-0009's
+  "losers are not stored — the winner's provenance records the lineage".
+  `add`'s single-prior-hash form is the N=1 case; consumers must treat the
+  field as free-text lineage, not assume one 64-hex hash.

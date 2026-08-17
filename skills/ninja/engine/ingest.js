@@ -1,32 +1,46 @@
-// `ninja ingest <dir>` — the v1.1 bulk pipeline's dry-run analysis phase
-// (ADR-0009). Walks a messy source directory, classifies every candidate as a
-// skill package (any packaging), a prompt document, or junk, then resolves
-// **clusters**: candidates sharing a normalized identity group together, one
-// winner per cluster is proposed deterministically (byte-identical members
-// collapse by content hash; an explicit version signal orders divergent
-// content; the unpacked form beats the archive among identical copies), every
-// loser is listed with its hash and the reason it lost, and divergent
-// duplicates no rule can order become `needs-decision` with a side-by-side.
-// The static safety check runs across all candidates as a report column. The
-// dry run is strictly read-only: storing winners is `--apply`'s job (a later
-// build).
+// `ninja ingest <dir>` — the v1.1 bulk pipeline (ADR-0009). Walks a messy
+// source directory, classifies every candidate as a skill package (any
+// packaging), a prompt document, or junk, then resolves **clusters**:
+// candidates sharing a normalized identity group together, one winner per
+// cluster is proposed deterministically (byte-identical members collapse by
+// content hash; an explicit version signal orders divergent content; the
+// unpacked form beats the archive among identical copies), every loser is
+// listed with its hash and the reason it lost, and divergent duplicates no
+// rule can order become `needs-decision` with a side-by-side. The static
+// safety check runs across all candidates as a report column. The dry run is
+// strictly read-only; `--apply` executes the approved batch: it stores exactly
+// the winners (wrapped where applicable) in the canonical store with ADR-0005
+// stamps (`provenance.from` labels the batch, `derived_from` the superseded
+// lineage), links nothing, leaves the source untouched, and lands the whole
+// run as one git commit (+ push). Re-ingest compares against the store by
+// identity + content hash: identical winners are skipped as already stored,
+// changed ones become needs-decision with the stored copy in the side-by-side.
 //
 // CONTEXT.md: Candidate, Cluster, Ingest, Skill, Wrap. ADR-0009: cluster
 // resolution rules, the inside/outside edge ("files inside a recognized
 // package are bundled assets and always travel with it"), losers-not-stored,
-// divergent-duplicates policy. ADR-0005: the content hash (the body hash)
-// members collapse on.
+// divergent-duplicates policy, re-ingest idempotency. ADR-0005: the content
+// hash (the body hash) members collapse on and winners are stamped with.
+// ADR-0010: the deterministic prompt wrap.
 
-import { readdir, readFile, stat, open } from "node:fs/promises";
-import { join, basename } from "node:path";
+import { readdir, readFile, stat, open, mkdir, writeFile, copyFile, rm, mkdtemp } from "node:fs/promises";
+import { join, basename, dirname } from "node:path";
+import { homedir, tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 
 import { parseFrontmatter } from "./inventory.js";
-import { bodyHash, extractBody, serializeStamps, splitFrontmatter, sha256 } from "./hash.js";
+import { bodyHash, extractBody, serializeStamps, splitFrontmatter } from "./hash.js";
 import { lineDiff, summarizeChanges, shortHash } from "./diff.js";
 import { scanSafety } from "./safety.js";
+import { loadConfig } from "./config.js";
+import { ensureStore } from "./discover.js";
+import { tryCommit, tryPush, firstRemote } from "./git.js";
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+// Deterministic directory-entry order: sorted by name, everywhere the walk or
+// the store scan lists entries (byte-stable output depends on it).
+const byName = (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
 
 // Directories never descended into (never candidates, often huge) — the same
 // rule init's scan applies (engine/inventory.js).
@@ -255,8 +269,10 @@ const PACKAGING_RANK = { folder: 0, file: 1, archive: 2 };
 // / bare file): identity from the SKILL.md's frontmatter (stem fallback), the
 // packaging reason, the needs-review marking on delimiter damage, plus the
 // cluster-resolution facts — the packaging rank, the raw stem (version signals
-// live in filenames), and the content hash (ADR-0005 body hash).
-function skillItem({ relPath, stem, text, packagingReason, packaging }) {
+// live in filenames), and the content hash (ADR-0005 body hash). `skillFile`
+// names where the skill file sits (the folder child / the archive member) so
+// `--apply` can store exactly that text as SKILL.md and copy the sibling assets.
+function skillItem({ relPath, stem, text, packagingReason, packaging, skillFile = null }) {
   const fm = text !== null ? parseFrontmatter(text) : {};
   const damage = frontmatterDamage(text);
   return {
@@ -267,6 +283,7 @@ function skillItem({ relPath, stem, text, packagingReason, packaging }) {
     needsReview: damage || undefined,
     packaging,
     stem,
+    skillFile,
     text, // the SKILL.md text (null when unreadable) — the safety scan's input
     bodyText: extractBody(text ?? ""),
     hash: bodyHash(text), // the ADR-0005 content hash — one shared definition
@@ -305,6 +322,7 @@ function classifyArchive(path, relPath) {
     text,
     packagingReason: `zip archive (content-detected) with skill file '${member}'`,
     packaging: "archive",
+    skillFile: member,
   });
 }
 
@@ -344,15 +362,19 @@ function keptFrontmatterLines(content) {
  * `description` is never drafted — wrapped prompts stay needs-review until a
  * later curated pass — and vault/Notion artifacts in the body are carried
  * as-is, never interpreted. Same input => same wrapped form, byte for byte.
+ * `derivedFrom` (the superseded lineage `--apply` records when the wrapped
+ * winner superseded older prompt variants) defaults to null — the wrap preview
+ * renders the pre-cluster form.
  *
  * @param {object} args
  * @param {string} args.content The prompt document's text.
  * @param {string} args.stem The filename stem (identity source).
  * @param {string} args.from The batch label (provenance.from, ADR-0009).
  * @param {string} args.imported The run date (YYYY-MM-DD).
+ * @param {string|null} [args.derivedFrom] Lineage for `--apply` (default null).
  * @returns {{name: string, skillMd: string}}
  */
-export function wrapPromptDocument({ content, stem, from, imported }) {
+export function wrapPromptDocument({ content, stem, from, imported, derivedFrom = null }) {
   const name = normalizeIdentity(stem) || "unnamed";
   const fm = serializeStamps(
     {
@@ -360,7 +382,7 @@ export function wrapPromptDocument({ content, stem, from, imported }) {
       version: "1.0.0",
       updated: imported,
       hash: bodyHash(content),
-      provenance: { source: "received", from, imported, derived_from: null, relation: null },
+      provenance: { source: "received", from, imported, derived_from: derivedFrom, relation: null },
     },
     keptFrontmatterLines(content),
   );
@@ -429,7 +451,7 @@ export async function analyzeDirectory(root) {
     } catch {
       return;
     }
-    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    entries.sort(byName);
 
     if (entries.length === 0) {
       candidates.push({ classification: JUNK, relPath: prefix, reason: "empty directory" });
@@ -472,6 +494,7 @@ export async function analyzeDirectory(root) {
                   ? "folder containing SKILL.md"
                   : `folder containing skill file '${skillChild}'`,
               packaging: "folder",
+              skillFile: skillChild,
             }),
           );
         } else {
@@ -576,6 +599,14 @@ function firstChangeHint(entries) {
   const del = entries.find((e) => e.type === "del" && e.text.trim());
   if (del) return { verb: "removes", text: del.text };
   return null;
+}
+
+// The diff payload a needs-decision variant carries against its base variant:
+// distinct change counts plus the first-change hint. One shape, built by both
+// the cluster resolution and the store comparison.
+function variantDiff(baseText, text) {
+  const d = diffStats(baseText, text);
+  return d ? { counts: d.counts, hint: firstChangeHint(d.entries) } : null;
 }
 
 /**
@@ -688,11 +719,123 @@ export function resolveClusters(candidates) {
       cluster.resolved = false;
       const base = variants[0];
       for (const v of variants) {
-        const d = v === base ? null : diffStats(base.members[0].bodyText, v.members[0].bodyText);
-        v.diff = d ? { counts: d.counts, hint: firstChangeHint(d.entries) } : null;
+        v.diff = v === base ? null : variantDiff(base.members[0].bodyText, v.members[0].bodyText);
       }
     }
     clusters.push(cluster);
+  }
+  return clusters;
+}
+
+// --- store comparison (re-ingest idempotency, ADR-0009) -------------------------
+
+// The default needs-decision reason (rendered in the cluster header).
+const NEEDS_REASON = "same identity, different content, no version signal orders the variants";
+// The reason when the store forced the decision: replacing the user's stored,
+// curated copy is never a rule's call — only the user's.
+const NEEDS_REASON_STORE = "the stored version differs — replacing stored content is your decision";
+
+/**
+ * Index the canonical store by normalized identity: every skill directory with
+ * a readable SKILL.md maps identity -> {dir, hash, body}. `add` stores skills
+ * under their raw (unnormalized) names, so the key is the normalized frontmatter
+ * name with the folder name as fallback — the same normalization identities use,
+ * making the lookup robust to how the stored skill got there. A missing or
+ * unreadable store yields an empty index (the comparison then no-ops).
+ *
+ * @param {string} store Path to the canonical store.
+ * @returns {Promise<Map<string, {dir: string, hash: string, body: string}>>}
+ */
+export async function readStoreIndex(store) {
+  const index = new Map();
+  let entries;
+  try {
+    entries = await readdir(store, { withFileTypes: true });
+  } catch {
+    return index; // no store yet — nothing stored, nothing to compare
+  }
+  for (const e of entries.sort(byName)) {
+    if (!e.isDirectory() || e.name.startsWith(".")) continue;
+    let text;
+    try {
+      text = await readFile(join(store, e.name, "SKILL.md"), "utf8");
+    } catch {
+      continue; // not a skill directory (assets only, partial write, …)
+    }
+    const fm = parseFrontmatter(text);
+    const identity = normalizeIdentity(
+      (typeof fm.name === "string" && fm.name.trim()) || e.name,
+    );
+    if (!identity || index.has(identity)) continue;
+    index.set(identity, { dir: join(store, e.name), hash: bodyHash(text), body: extractBody(text) });
+  }
+  return index;
+}
+
+// The stored copy as a side-by-side variant member: a pseudo-candidate whose
+// relPath is its store directory (trailing slash, folder-style), so the
+// needs-decision rendering shows where the competing content lives.
+function storedMember(entry) {
+  return {
+    classification: SKILL,
+    relPath: entry.dir + "/",
+    packaging: "stored",
+    bodyText: entry.body,
+    hash: entry.hash,
+    versionSignal: null,
+  };
+}
+
+/**
+ * Compare every cluster against the stored skills (ADR-0009 "re-ingest is
+ * idempotent by identity"): a winner already in the store byte-for-byte marks
+ * the cluster `alreadyStored` (nothing to do); a stored copy under the same
+ * identity with *different* content forces the cluster to `needs-decision` —
+ * the stored copy joins the side-by-side as its own variant — because
+ * replacing stored content is the user's call even when a filename version
+ * signal ordered the incoming candidates. Pure given the index; mutates and
+ * returns the clusters.
+ *
+ * @param {Array<object>} clusters From resolveClusters.
+ * @param {Map<string, {dir: string, hash: string, body: string}>} storeIndex
+ * @returns {Array<object>}
+ */
+export function compareWithStore(clusters, storeIndex) {
+  for (const cluster of clusters) {
+    const entry = storeIndex.get(cluster.identity);
+    if (!entry) continue;
+
+    if (cluster.resolved && cluster.winner.hash === entry.hash) {
+      cluster.alreadyStored = true;
+      continue;
+    }
+
+    // The stored copy competes as a variant alongside the candidates (or joins
+    // the variant it is byte-identical with, keeping the cluster's outcome).
+    const member = storedMember(entry);
+    const existing = cluster.variants.find((v) => v.hash === entry.hash);
+    if (existing) {
+      existing.members.push(member);
+    } else {
+      const base = cluster.variants[0];
+      cluster.variants.push({
+        hash: entry.hash,
+        members: [member],
+        signal: null,
+        lines: entry.body.split(/\r?\n/).length,
+        diff: variantDiff(base.members[0].bodyText, entry.body),
+      });
+    }
+
+    // Differing stored content withdraws the proposal: no rule may pick the
+    // incoming winner over the stored copy the user already curated.
+    if (cluster.resolved) {
+      cluster.resolved = false;
+      cluster.winner = null;
+      cluster.winnerNote = null;
+      cluster.losers = [];
+    }
+    cluster.needsReason = NEEDS_REASON_STORE;
   }
   return clusters;
 }
@@ -723,7 +866,7 @@ async function readFolderFiles(dir, prefix) {
   } catch {
     return files;
   }
-  for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+  for (const e of entries.sort(byName)) {
     if (e.name === ".git" || e.name === "node_modules") continue;
     const full = join(dir, e.name);
     if (e.isDirectory()) files.push(...(await readFolderFiles(full, prefix + e.name + "/")));
@@ -820,12 +963,14 @@ function renderResolvedCluster(cluster) {
   const w = cluster.winner;
   // On a version-ordered cluster the winner states its deciding signal (and the
   // lineage it supersedes); on a collapsed cluster the packaging reason already
-  // is the why.
+  // is the why. A winner the store already holds byte-for-byte says so — the
+  // re-ingest no-op (ADR-0009).
   const note = cluster.winnerNote
     ? `; ${cluster.winnerNote} — supersedes ${plural(cluster.variants.length - 1, "older variant", "older variants")}`
     : "";
+  const stored = cluster.alreadyStored ? "; already stored — identical content, nothing to do" : "";
   lines.push(
-    `    winner  ${w.relPath.padEnd(width)}  ${classificationLabel(w)}  ${w.reason}${note}${safetyTag(w)}`,
+    `    winner  ${w.relPath.padEnd(width)}  ${classificationLabel(w)}  ${w.reason}${note}${stored}${safetyTag(w)}`,
   );
   lines.push(...wrapPreviewLines(w));
   const losers = cluster.losers.slice().sort((a, b) => memberOrder(a.member, b.member));
@@ -859,17 +1004,22 @@ function renderNeedsDecisionCluster(cluster) {
 /**
  * Render the dry-run report (ADR-0009): clusters with the proposed resolution
  * (winner + reason, losers with hash and loss reason, or the needs-decision
- * side-by-side), the junk list, and a summary. Deterministic: same input,
- * same bytes.
+ * side-by-side), the junk list, and a summary. Deterministic: the same
+ * candidates AND the same store state render the same bytes (the store
+ * comparison annotates already-stored winners and adds store-conflict
+ * variants). Clusters may be passed in precomputed (as the command does, after
+ * the store comparison re-marked them); by default they are resolved here.
  *
  * @param {string} root The analyzed directory (absolute).
  * @param {Array<object>} candidates The classified candidates.
+ * @param {Array<object>} [clusters] Precomputed clusters (resolveClusters +
+ *   compareWithStore output) — resolved fresh when omitted.
  * @returns {string}
  */
-export function renderReport(root, candidates) {
-  const clusters = resolveClusters(candidates);
+export function renderReport(root, candidates, clusters = resolveClusters(candidates)) {
   const junk = candidates.filter((c) => c.classification === JUNK);
   const needsDecision = clusters.filter((c) => !c.resolved);
+  const alreadyStored = clusters.filter((c) => c.alreadyStored);
 
   const lines = [`Skill Ninja ingest — dry run analysis of ${root}`, "(analysis only: nothing is modified)", ""];
 
@@ -883,9 +1033,7 @@ export function renderReport(root, candidates) {
       lines.push(header);
       lines.push(...renderResolvedCluster(cluster));
     } else {
-      lines.push(
-        `${header} — NEEDS DECISION: same identity, different content, no version signal orders the variants`,
-      );
+      lines.push(`${header} — NEEDS DECISION: ${cluster.needsReason ?? NEEDS_REASON}`);
       lines.push(...renderNeedsDecisionCluster(cluster));
     }
   }
@@ -899,6 +1047,7 @@ export function renderReport(root, candidates) {
     "",
     `Summary: ${plural(clusters.length, "cluster", "clusters")} ` +
       `(${resolved} with a proposed winner` +
+      `${alreadyStored.length ? `, ${alreadyStored.length} already stored` : ""}` +
       `${needsDecision.length ? `, ${needsDecision.length} needs-decision` : ""}), ` +
       `${junk.length} junk — ${candidates.length} items.`,
     "Dry run: nothing was modified.",
@@ -906,28 +1055,283 @@ export function renderReport(root, candidates) {
   return lines.join("\n") + "\n";
 }
 
+// --- apply (ADR-0009: store the approved batch) ---------------------------------
+
+// The batch label every winner's provenance.from carries: the analyzed
+// directory's basename (the label the wrap preview already stamps, so the
+// previewed and stored bytes agree).
+const batchLabel = (root) => basename(root);
+
+// The superseded lineage a winner records in provenance.derived_from: the
+// content hashes of its divergent losing variants (identical-copy losers share
+// the winner's hash — nothing was superseded, the content lives on). Full
+// hashes, deterministic variant order, comma-joined; null when nothing was
+// superseded.
+function winnerLineage(cluster) {
+  const hashes = cluster.variants.filter((v) => v.hash !== cluster.winner.hash).map((v) => v.hash);
+  return hashes.length ? hashes.join(", ") : null;
+}
+
+// The stamped SKILL.md `--apply` stores for a winner. Skill packages keep their
+// own frontmatter (minus the stamped keys, keptFrontmatterLines): stamps add to
+// the skill's own frontmatter without dropping it — SPEC.md's implementation
+// decision, via the kept-lines mechanism ADR-0010 introduced (see also the
+// 2026-08-17 update in ADR-0005); prompt winners store their wrapped form,
+// re-wrapped only to fill the lineage the cluster step decided (the body, name,
+// and all other stamps are byte-identical to the previewed wrap).
+function storedSkillText(winner, cluster, { from, imported }) {
+  if (winner.wrapped) {
+    return wrapPromptDocument({
+      content: winner.content,
+      stem: winner.stem,
+      from,
+      imported,
+      derivedFrom: winnerLineage(cluster),
+    }).skillMd;
+  }
+  return (
+    serializeStamps(
+      {
+        name: cluster.identity,
+        version: "1.0.0", // only new identities are ever stored (identical -> skip, changed -> needs-decision)
+        updated: imported,
+        hash: winner.hash,
+        provenance: {
+          source: "received",
+          from,
+          imported,
+          derived_from: winnerLineage(cluster),
+          relation: null,
+        },
+      },
+      keptFrontmatterLines(winner.text ?? ""),
+    ) + extractBody(winner.text ?? "")
+  );
+}
+
+// Collect a package's bundled assets (they always travel with it, ADR-0009):
+// every file under the package dir except macOS noise, VCS/runtime dirs, and
+// skill files — the stamped SKILL.md is written separately, and a package
+// stores exactly one skill file. The same file set the safety scan walks.
+async function packageAssetFiles(pkgDir) {
+  const files = [];
+  let entries;
+  try {
+    entries = await readdir(pkgDir, { withFileTypes: true });
+  } catch {
+    return files;
+  }
+  for (const e of entries.sort(byName)) {
+    if ([".git", "node_modules", "__MACOSX", ".DS_Store"].includes(e.name)) continue;
+    if (e.isFile()) {
+      if (!isSkillFileName(e.name)) files.push({ absPath: join(pkgDir, e.name), relPath: e.name });
+    } else if (e.isDirectory()) {
+      for (const f of await packageAssetFiles(join(pkgDir, e.name))) {
+        files.push({ absPath: f.absPath, relPath: e.name + "/" + f.relPath });
+      }
+    }
+  }
+  return files;
+}
+
+// Extract an archive into a fresh temp dir (never into the source) and return
+// the dir; the caller removes it. Extraction failure yields whatever unzip did
+// write — a missing package dir simply contributes no assets.
+async function extractArchiveToTemp(archivePath) {
+  const tmp = await mkdtemp(join(tmpdir(), "ninja-ingest-"));
+  try {
+    execFileSync("unzip", ["-q", "-o", archivePath, "-d", tmp], { stdio: "ignore" });
+  } catch {
+    // unreadable members — the walk below salvages what it can
+  }
+  return tmp;
+}
+
+// Copy one winner's bundled assets next to its stamped SKILL.md. Folders copy
+// straight out of the source; archives are unpacked to temp first, the package
+// root being the skill member's directory. Bare files and prompts have none.
+async function copyWinnerAssets(root, winner, destDir) {
+  if (winner.packaging === "folder") {
+    await copyAssets(await packageAssetFiles(join(root, winner.relPath)), destDir);
+    return;
+  }
+  if (winner.packaging === "archive" && winner.skillFile) {
+    const tmp = await extractArchiveToTemp(join(root, winner.relPath));
+    try {
+      const pkgDir = join(tmp, dirname(winner.skillFile));
+      await copyAssets(await packageAssetFiles(pkgDir), destDir);
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  }
+}
+
+async function copyAssets(files, destDir) {
+  for (const f of files) {
+    const dest = join(destDir, f.relPath);
+    await mkdir(dirname(dest), { recursive: true });
+    await copyFile(f.absPath, dest);
+  }
+}
+
+/**
+ * Execute the approved batch (ADR-0009 `--apply`): store every resolved
+ * cluster's winner into the canonical store (stamped, assets copied), skip
+ * needs-decision clusters (never auto-decided) and already-stored ones
+ * (idempotent re-ingest). Nothing is linked into any agent root; the source
+ * directory is only ever read. Returns the applied-changes record the summary
+ * renders.
+ *
+ * @param {string} root The analyzed directory.
+ * @param {string} store The canonical store.
+ * @param {Array<object>} clusters resolveClusters + compareWithStore output.
+ * @param {Array<object>} candidates The classified candidates (junk counting).
+ * @returns {Promise<{stored: Array<{identity: string, winner: object}>,
+ *   skipped: Array<{identity: string, members: number, variants: number}>,
+ *   alreadyStored: Array<{identity: string, hash: string}>,
+ *   losers: Array<{member: object, reason: string}>, junkCount: number}>}
+ */
+async function applyClusters(root, store, clusters, candidates) {
+  const result = {
+    stored: [],
+    skipped: [],
+    alreadyStored: [],
+    losers: [],
+    junkCount: candidates.filter((c) => c.classification === JUNK).length,
+  };
+  const ctx = { from: batchLabel(root), imported: today() };
+
+  for (const cluster of clusters) {
+    if (!cluster.resolved) {
+      result.skipped.push({
+        identity: cluster.identity,
+        members: cluster.members.length,
+        variants: cluster.variants.length,
+      });
+      continue;
+    }
+    if (cluster.alreadyStored) {
+      result.alreadyStored.push({ identity: cluster.identity, hash: cluster.winner.hash });
+      continue;
+    }
+    const destDir = join(store, cluster.identity);
+    await mkdir(destDir, { recursive: true });
+    await writeFile(join(destDir, "SKILL.md"), storedSkillText(cluster.winner, cluster, ctx), "utf8");
+    await copyWinnerAssets(root, cluster.winner, destDir);
+    result.stored.push({ identity: cluster.identity, winner: cluster.winner });
+    result.losers.push(...cluster.losers);
+  }
+  return result;
+}
+
+function renderAppliedSummary(root, store, result, gitInfo) {
+  const width =
+    Math.max(
+      8,
+      ...result.stored.map((s) => s.identity.length),
+      ...result.skipped.map((s) => s.identity.length),
+      ...result.alreadyStored.map((s) => s.identity.length),
+      ...result.losers.map((l) => l.member.relPath.length),
+    ) + 2;
+  const lines = [
+    `Skill Ninja ingest — applying ${root}`,
+    `(batch '${batchLabel(root)}': storing winners into ${store}; the source directory is never modified)`,
+    "",
+  ];
+
+  if (result.stored.length) {
+    lines.push(`Stored ${plural(result.stored.length, "skill", "skills")}:`);
+    for (const s of result.stored) {
+      lines.push(
+        `  stored   ${s.identity.padEnd(width)}  hash ${shortHash(s.winner.hash)}  ${classificationLabel(s.winner)}${safetyTag(s.winner)}`,
+      );
+    }
+  } else {
+    lines.push("Nothing to store.");
+  }
+
+  if (result.alreadyStored.length) {
+    lines.push("", `Already stored ${plural(result.alreadyStored.length, "skill", "skills")} (identical content — nothing to do):`);
+    for (const s of result.alreadyStored) {
+      lines.push(`  already  ${s.identity.padEnd(width)}  hash ${shortHash(s.hash)}`);
+    }
+  }
+
+  if (result.skipped.length) {
+    lines.push("", `Skipped ${plural(result.skipped.length, "conflict", "conflicts")} (needs-decision — never auto-decided):`);
+    for (const s of result.skipped) {
+      lines.push(
+        `  skipped  ${s.identity.padEnd(width)}  ${plural(s.members, "candidate", "candidates")}, ${plural(s.variants, "variant", "variants")} — decide via the dry-run report, then re-run`,
+      );
+    }
+  }
+
+  if (result.losers.length) {
+    lines.push("", `Discarded ${plural(result.losers.length, "loser", "losers")} (reported, never stored — the source keeps them):`);
+    for (const { member, reason } of result.losers.slice().sort((a, b) => memberOrder(a.member, b.member))) {
+      lines.push(`  loser    ${member.relPath.padEnd(width)}  hash ${shortHash(member.hash)}  ${reason}`);
+    }
+  }
+
+  lines.push("", `Junk: ${result.junkCount} (skipped, never deleted — see the dry-run report).`);
+
+  if (result.stored.length === 0) {
+    lines.push("", "No commit — nothing new was stored.");
+    return lines.join("\n") + "\n";
+  }
+  if (gitInfo.committed) lines.push("", `Committed to ${store} (${gitInfo.message}).`);
+  else
+    lines.push(
+      "",
+      "Not committed (git unavailable, nothing to commit, or a hook rejected it — the skills are stored, versioning skipped).",
+    );
+  if (gitInfo.pushed) lines.push("Pushed to the private remote.");
+  else if (gitInfo.pushFailed) lines.push("Push failed — the commit stays local (retry with `git push`).");
+  return lines.join("\n") + "\n";
+}
+
 // --- command ------------------------------------------------------------------
 
 function parseIngestArgs(args) {
-  const opts = { dir: undefined };
+  const opts = { dir: undefined, apply: false };
   for (const a of args) {
-    if (a === "--apply") return { error: "`--apply` is not implemented in this build yet (the dry run is the analysis)." };
-    if (a.startsWith("--")) return { error: `unknown option: ${a}` };
-    if (opts.dir === undefined) opts.dir = a;
+    if (a === "--apply") opts.apply = true;
+    else if (a.startsWith("--")) return { error: `unknown option: ${a}` };
+    else if (opts.dir === undefined) opts.dir = a;
     else return { error: `unexpected argument: ${a}` };
   }
   if (opts.dir === undefined) return { error: "no directory given" };
   return opts;
 }
 
+// Clusters for a run: resolved, then compared against the canonical store when
+// one is usable, so both the report and `--apply` see the same already-stored /
+// store-conflict states. The dry run needs no config (a ticket-01 pin) — no
+// store, no comparison, silently.
+async function comparedClusters(items, store) {
+  let storeDir = store;
+  if (storeDir === null) {
+    try {
+      storeDir = (await loadConfig(homedir())).store ?? null;
+    } catch {
+      storeDir = null; // no config — analysis only, nothing to compare against
+    }
+  }
+  const clusters = resolveClusters(items);
+  if (!storeDir) return clusters;
+  return compareWithStore(clusters, await readStoreIndex(storeDir));
+}
+
 /**
- * Run `ninja ingest <dir>` (dry run). Returns the process exit code.
+ * Run `ninja ingest <dir>` — the dry-run analysis, or with `--apply` the
+ * approved batch's execution (store winners, one commit + push). Returns the
+ * process exit code.
  * @param {string[]} args
  */
 export async function ingestCommand(args) {
   const opts = parseIngestArgs(args);
   if (opts.error) {
-    process.stderr.write(`${opts.error}\nTry: ninja ingest <dir>\n`);
+    process.stderr.write(`${opts.error}\nTry: ninja ingest <dir> [--apply]\n`);
     return 2;
   }
   let st;
@@ -941,8 +1345,59 @@ export async function ingestCommand(args) {
     process.stderr.write(`not a directory: ${opts.dir}\n`);
     return 2;
   }
+
+  // --apply writes the store, so it needs the configured landscape (the same
+  // gates `add` uses); the dry run stays config-free.
+  let store = null;
+  if (opts.apply) {
+    let config;
+    try {
+      config = await loadConfig(homedir());
+    } catch (e) {
+      if (e && e.code === "ENOENT") {
+        process.stderr.write("No Skill Ninja configuration found. Run `ninja init` first.\n");
+        return 2;
+      }
+      throw e;
+    }
+    store = config.store ?? null;
+    if (!store) {
+      process.stderr.write("No canonical store configured (set `store` in ~/.skill-ninja/config.json).\n");
+      return 2;
+    }
+    await ensureStore(store);
+  }
+
   const items = await analyzeDirectory(opts.dir);
   await attachSafetySummaries(opts.dir, items);
-  process.stdout.write(renderReport(opts.dir, items));
+  const clusters = await comparedClusters(items, store);
+
+  if (!opts.apply) {
+    process.stdout.write(renderReport(opts.dir, items, clusters));
+    return 0;
+  }
+
+  const result = await applyClusters(opts.dir, store, clusters, items);
+
+  // One commit for the whole run (the batch approval unit, ADR-0009), pushed
+  // to the private remote when one is configured — commit-only otherwise, and
+  // no commit at all when nothing new was stored (the idempotent re-ingest).
+  let committed = false;
+  let pushed = false;
+  let pushFailed = false;
+  let message = "";
+  if (result.stored.length) {
+    const conflicts = result.skipped.length === 1 ? "1 conflict" : `${result.skipped.length} conflicts`;
+    message = `ingest ${batchLabel(opts.dir)}: ${result.stored.length} stored, ${conflicts} skipped, ${result.junkCount} junk`;
+    committed = tryCommit(store, result.stored.map((s) => s.identity), message);
+    // A configured remote that fails to take the push is reported, not hidden
+    // (no remote at all stays silent, like `add`).
+    const remote = committed ? firstRemote(store) : null;
+    pushed = remote ? tryPush(store) : false;
+    pushFailed = Boolean(remote) && !pushed;
+  }
+  process.stdout.write(
+    renderAppliedSummary(opts.dir, store, result, { message, committed, pushed, pushFailed }),
+  );
   return 0;
 }
