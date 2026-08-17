@@ -1,7 +1,7 @@
-# Skill Ninja — v1.0 Specification
+# Skill Ninja — v1.1 Specification
 
-> Vocabulary: see [`CONTEXT.md`](./CONTEXT.md) (Skill, Skill Ninja, Provenance, the tiers, Agent root, Tool asymmetry).
-> Status: v1.0 command surface implemented and realigned to the sharpened architecture — installation delegated to skills.sh (ADR-0007), `init` bootstraps configuration (ADR-0008). The skill is invoked as `/ninja` (e.g. `/ninja init`).
+> Vocabulary: see [`CONTEXT.md`](./CONTEXT.md) (Skill, Skill Ninja, Provenance, the tiers, Agent root, Tool asymmetry; Ingest, Candidate, Cluster, Wrap).
+> Status: v1.0 command surface implemented and realigned to the sharpened architecture — installation delegated to skills.sh (ADR-0007), `init` bootstraps configuration (ADR-0008). v1.1 adds bulk `ingest` — specified (ADR-0009, ADR-0010), not yet built. The skill is invoked as `/ninja` (e.g. `/ninja init`).
 
 ## Problem Statement
 
@@ -11,12 +11,13 @@ Existing approaches are either ad-hoc (a hand-managed folder of symlinks) or ove
 
 ## Solution
 
-**Skill Ninja** — a standalone skill-management product, installed (like any skill) via skills.sh: `npx skills add MarcoHerten/skill-ninja`. **skills.sh is the installer**; Skill Ninja is the layer on top — it audits the skills already on the machine, heals them, and ingests (with provenance) the skills that don't come through skills.sh. It runs inside the coding agent and provides five capabilities:
+**Skill Ninja** — a standalone skill-management product, installed (like any skill) via skills.sh: `npx skills add MarcoHerten/skill-ninja`. **skills.sh is the installer**; Skill Ninja is the layer on top — it audits the skills already on the machine, heals them, and ingests (with provenance) the skills that don't come through skills.sh. It runs inside the coding agent and provides six capabilities:
 
 - **`init`** — analyzes the machine: which coding agents are installed, and where every skill lives across agent roots and Obsidian vaults.
 - **`status`** — one inventory view: each skill's location, duplicates, broken symlinks, versions, and provenance.
 - **`doctor`** — detects and repairs problems (broken links, duplicates, orphans), applying each fix only with the user's approval.
 - **`add`** — ingests a skill that didn't come through skills.sh (received from a friend, downloaded, or a bare prompt), runs a safety check, shows a diff against any existing version, stamps provenance + content hash, places the canonical copy in the store, links it into the chosen agent roots, and commits + pushes to the private remote. (Installing skills.sh-sourced skills is skills.sh's job — `npx skills add`.)
+- **`ingest`** *(v1.1)* — the bulk pipeline for messy source directories (ADR-0009): point it at a directory of skills in any packaging (folders, `.zip`/`.skill`/`.skill.zip` archives, bare `SKILL.md` files) plus raw prompt documents; it classifies every item, clusters variants, and reports a proposed resolution — winners with reasons, discarded variants, junk, safety findings, unresolved conflicts. `--apply` stores the approved winners with provenance in one commit: read-only on the source, links nothing. Prompt documents are deterministically wrapped into skills (ADR-0010).
 - **`diff`** — shows what changed in a skill since the stored version ("a friend sent v2 — what's new?").
 
 **Personal** skills live in a **local canonical store** — a git repo with an optional **private remote** for versioning (`add` commits and pushes). **External** skills are owned by skills.sh (its `skills-lock.json`); Skill Ninja audits them but does not manage them. A static HTML status page is deferred to v1.1.
@@ -77,6 +78,16 @@ Existing approaches are either ad-hoc (a hand-managed folder of symlinks) or ove
 41. As a user, I want a status page (v1.1) to view my skill landscape in a browser as a static HTML page.
 42. As a user, I want Skill Ninja to avoid the anti-patterns of earlier attempts — no manual catalog, no multi-target deploy scripts, no sync-as-transport.
 
+### Bulk ingest (v1.1)
+43. As a user with a messy export directory (skills as folders, zips, `.skill` archives, bare files, and plain prompts), I want to point `/ninja ingest` at it and get an analysis report — with nothing changed yet.
+44. As a user, I want the report to group the mess into clusters and propose one winner per cluster, each with a plain-language reason.
+45. As a user, I want non-skill junk (PDFs, dashboards, export metadata, backups) listed as skipped — never ingested, never deleted.
+46. As a user, I want divergent duplicates the rules can't resolve flagged as needs-decision, with the agent proposing a batch resolution I approve once per cluster group.
+47. As a user, I want prompt documents wrapped into skills (name derived, description marked needs-review) so a prompt library becomes one manageable unit type.
+48. As a user, I want ingest to store winners only in my canonical store — one commit (+ push) for the whole batch, nothing linked into my agents.
+49. As a user, I want the source directory left completely untouched.
+50. As a user, I want re-ingesting the same directory to be a no-op for unchanged skills and a diff-based decision for changed ones.
+
 ## Implementation Decisions
 
 - **Form factor — hybrid.** Skill Ninja ships as a skill (`SKILL.md`, the orchestration/interface layer the agent drives via slash commands) bundled with a **Node.js engine** that performs the deterministic work (inventory, hash, diff, doctor). The skill is the interface; the engine is the muscle.
@@ -87,8 +98,9 @@ Existing approaches are either ad-hoc (a hand-managed folder of symlinks) or ove
 - **Runtime — Node.js.** The engine scripts are Node, because the `npx` install guarantees Node is present; no Python (or other runtime) dependency is imposed on public users.
 - **Storage model.** A local **canonical store** (default `~/.skill-ninja/store`) holds **Personal** skills; it is a git repo with an optional **private remote**, and `add` commits and pushes. Personal skills are linked into the relevant agent roots by Skill Ninja. **External skills** are owned by skills.sh (recorded in its `skills-lock.json`) — Skill Ninja audits them but does not manage or re-link them. Two linking systems coexist, separated by tier.
 - **Skill identity & versioning.** Each managed skill carries frontmatter stamps — `version`, `updated`, `provenance { source, from, imported, derived_from, relation }` — plus a **content hash**. Stamps add to the skill's own frontmatter without dropping it (the `description` is preserved); `relation` records the relationship to a comparable skill (ported from `skill-intake`). Before ingest, `add` surfaces **comparable skills** in the store — same name stems, overlapping descriptions, or identical content — and the skill layer walks a comparison report (trigger collisions, dangling references, variant integrity → replace / parallel / merge / reject). (Generalizes a proven personal convention.)
+- **Bulk ingest — a sixth command (v1.1, ADR-0009/0010).** `ingest <dir>` is its own pipeline, not a bulk mode of `add`: two-phase like `doctor` (analyze + report dry run, then `--apply`), read-only on the source, store-only (no linking — context hygiene). Every item classifies as skill package (any packaging, `SKILL.md` at any nesting level or under non-standard names, archives sniffed by magic bytes), prompt document (deterministically wrapped into a skill: name from the normalized stem, original text and frontmatter preserved, description empty + needs-review, curated later in batches), or junk (skipped + reported; assets inside a package always travel). Cluster identity is the normalized `name` (fallback: the stem); winner priority: folder > archive, version signal > mtime, byte-identical members collapse. Losers are reported, not stored (lineage on the winner's `derived_from`). Divergent duplicates become needs-decision items the agent layer resolves in user-approved batches. Re-ingest is idempotent by name + content hash.
 - **Tool asymmetry.** Skill Ninja abstracts over agent roots: it knows each agent's root and places/links a skill into all relevant ones so one logical skill is available everywhere, without the user thinking about it.
-- **Commands.** `init`, `status`, `doctor`, `add`, `diff` — invoked by the agent through the skill's slash commands, which call the Node engine.
+- **Commands.** `init`, `status`, `doctor`, `add`, `diff` (v1.0) and `ingest` (v1.1) — invoked by the agent through the skill's slash commands, which call the Node engine.
 - **Safety check.** Lightweight static analysis of skill content (over `SKILL.md` and any bundled scripts) flagging risky patterns, combined with provenance/source trust. Not a sandbox.
 - **No anti-patterns.** Status is computed on demand — there is no manually-maintained catalog/index to keep in sync. No multi-target deploy scripts. No sync-as-transport.
 
@@ -100,10 +112,15 @@ Existing approaches are either ad-hoc (a hand-managed folder of symlinks) or ove
 - **Greenfield:** there are no existing seams or in-repo prior art to reuse. A Node test runner (e.g. the built-in `node:test`) against fixture directories is the intended mechanism; the exact runner is a build-time choice.
 - **Good-test principle:** test external behavior — what a command does to the filesystem and what it reports — never internal module structure.
 - **Skill layer (manual):** the `SKILL.md` orchestration that guides the agent through `add`/intake is walked manually; it is not deterministically unit-testable.
+- **`ingest` fixtures reproduce the audited pathologies (v1.1).** Classification, name normalization (NFC, slug, suffix stripping), archive sniffing, and cluster resolution are tested against fixture directories mirroring the two real-world samples the design was decided against: one skill in four packagings, version clusters (v-suffix, semver, date codes), folder name ≠ frontmatter `name`, broken frontmatter, `__MACOSX` entries, NFD filenames, divergent same-name duplicates, prompt documents, and junk. Tests assert the dry run mutates nothing, and check the post-`--apply` filesystem, store stamps, and single-commit git state.
 
 ## Out of Scope
 
 - **Status page / HTML dashboard** — deferred to v1.1.
+- **Source-directory cleanup** — `ingest` never mutates the directory it analyzes; tidying the source is a separate activity, if ever.
+- **Bulk linking** — `ingest` stores without linking; a command to link stored skills into agent roots in bulk may follow later.
+- **Bulk git/URL sources** — `ingest` takes local directories; repo/URL sources remain `add`'s job.
+- **Description curation for wrapped prompts** — a follow-up activity with its own flow (ADR-0010), not part of `ingest`.
 - **Managed Claude Code plugin channel** — future; the skills.sh channel is the v1.0 distribution path.
 - **Sandboxed execution / deep security analysis** — only a lightweight static safety check in v1.0.
 - **Auto-updating external skills** — delegated to `npx skills update`; Skill Ninja reports available updates but does not replace skills.sh.
@@ -113,6 +130,6 @@ Existing approaches are either ad-hoc (a hand-managed folder of symlinks) or ove
 
 ## Further Notes
 
-- **Load-bearing decisions:** public product; standalone system that delegates installation to skills.sh (ADR-0007); local canonical store + optional private Git remote; Node engine + skill interface; `init` bootstraps configuration (ADR-0008); all five commands in the v1.0 spec, with the status page deferred to v1.1.
+- **Load-bearing decisions:** public product; standalone system that delegates installation to skills.sh (ADR-0007); local canonical store + optional private Git remote; Node engine + skill interface; `init` bootstraps configuration (ADR-0008); the five v1.0 commands, plus v1.1 bulk `ingest` as a read-only, two-phase, store-only pipeline (ADR-0009) that wraps prompt documents into skills (ADR-0010); status page deferred to v1.1.
 - **Design references:** a prior personal skill store (tier model, frontmatter/provenance convention, dual-linking) and `mattpocock/skills` (distribution + dual-channel model). **Anti-pattern reference:** an earlier overloaded attempt — avoid its manual catalog, multi-target deploy script, and sync-as-transport.
-- **Build sequencing:** although the spec covers all of v1.0, the build can still sequence features — `init` + `status` first (the "see your chaos" core), then `add` + `diff`, then `doctor`. Slicing is decided at `/to-tickets`.
+- **Build sequencing:** although the spec covers all of v1.0, the build can still sequence features — `init` + `status` first (the "see your chaos" core), then `add` + `diff`, then `doctor`. For v1.1, `ingest` slices naturally bottom-up: classification + normalization first (directly testable against the audited sample directories), then cluster resolution + report, then `--apply` (store, stamp, one commit). Slicing is decided at `/to-tickets`.

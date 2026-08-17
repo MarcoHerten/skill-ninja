@@ -18,6 +18,18 @@ _Avoid_: source (overloaded), metadata, history.
 The signal that a skill is present more than once. Identity is by **name** (the key `add` / `diff` / skills.sh use); the **content hash** is the secondary signal that catches the same skill living under a different name. Surfaced in `status` and `doctor`.
 _Avoid_: conflict, clash.
 
+**Candidate**:
+Every filesystem item `ingest` classifies during analysis — a skill package in any packaging form (folder, `.zip`/`.skill`/`.skill.zip` archive, bare `SKILL.md`), a prompt document, or a non-ingestable artifact. Candidates group into clusters; only cluster winners become skills.
+_Avoid_: item, entry, find.
+
+**Cluster**:
+The set of candidates `ingest` believes are the same logical skill — same normalized identity across packagings, copies, and versions. One winner per cluster is stored; the report shows every member and why the winner won.
+_Avoid_: duplicate group (a Duplicate is the `status` symptom; a cluster is the ingest-time grouping), version family.
+
+**Wrap**:
+The deterministic conversion of a prompt document into a skill package — `name` derived from the normalized filename, the prompt text preserved as the body, `description` initially empty. Ingest's answer to libraries that were never skills.
+_Avoid_: import (too generic), conversion.
+
 ### The product
 
 **Skill Ninja**:
@@ -31,6 +43,10 @@ _Avoid_: the library, the repo (ambiguous — say Skill-Library, or the user's s
 **skills.sh**:
 The external skill installer (`npx skills`, Vercel Labs) Skill Ninja delegates installation to — 76 agents, symlink or copy, security scan, project lockfile. Also the channel Skill Ninja itself is installed through.
 _Avoid_: the CLI, npx skills (say skills.sh).
+
+**Ingest**:
+The bulk pipeline (`/ninja ingest`): analyze a directory of candidates, cluster them, and report the proposed resolution; on explicit approval (`--apply`) store the winners with provenance. Read-only on the source directory and links nothing — storing, not installing. `add` remains the curated single-skill path.
+_Avoid_: bulk add, import (say ingest).
 
 ### Where skills live — the tiers
 

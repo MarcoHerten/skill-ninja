@@ -16,6 +16,7 @@ Skill Ninja runs **inside your coding agent**, on top of the skills [skills.sh](
 - **`/ninja status`** — one inventory view: per-agent reachability, copy-vs-symlink, global-vs-project, duplicates, broken symlinks, versions, and provenance.
 - **`/ninja doctor`** — detects and repairs problems (broken links, duplicates, orphans), with your approval for each fix.
 - **`/ninja add`** — ingests a skill that didn't come through skills.sh (a friend, a download, a bare prompt): safety check, diff, provenance + content-hash stamp, and install. Versioned in your private GitHub repo.
+- **`/ninja ingest`** *(planned, v1.1)* — point it at a messy directory (a skills export, a prompt library): it classifies everything, clusters the variants, and reports what it would keep. On approval it stores the winners, versioned in one commit — the source is never touched, nothing is auto-linked.
 - **`/ninja diff`** — shows what changed in a skill since you stored it ("my friend sent v2 — what's new?"), or against the upstream skills.sh source.
 
 Your **personal** skills live in a **local canonical store** — a git repo with an optional **private remote** for versioning. Skills you installed via skills.sh stay owned by skills.sh; Skill Ninja watches over everything.
@@ -35,7 +36,7 @@ Distribution via [skills.sh](https://skills.sh) (`npx skills`) — multi-agent t
 ## Roadmap
 
 - **v1.0** — `init`, `status`, `doctor`, `add` (+ safety check), `diff`
-- **v1.1** — static HTML status page
+- **v1.1** — `ingest` (bulk pipeline for messy skill/prompt directories — [ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)); static HTML status page
 
 ## Design principles
 
