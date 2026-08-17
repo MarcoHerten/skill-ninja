@@ -9,7 +9,7 @@
 
 import { execFileSync } from "node:child_process";
 import { stat, readFile } from "node:fs/promises";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -25,6 +25,31 @@ export function looksLikeRepo(source) {
   return false;
 }
 
+// A .zip archive source — the natural transport for "a friend sent me a skill"
+// (ported from the personal skill-intake workflow; SPEC.md user story #22).
+export function looksLikeZip(source) {
+  return typeof source === "string" && source.toLowerCase().endsWith(".zip");
+}
+
+// Extract a zip archive into a fresh temp dir and resolve the skill folder
+// inside: the archive root when it holds SKILL.md, else its single wrapping
+// directory (how zips are usually created). macOS `__MACOSX` metadata is
+// ignored. Throws a plain-language error on failure.
+export function extractZip(source) {
+  const tmp = mkdtempSync(join(tmpdir(), "ninja-unzip-"));
+  try {
+    execFileSync("unzip", ["-q", "-o", source, "-d", tmp], { stdio: "pipe" });
+  } catch {
+    throw new Error(`failed to extract '${source}' (is it a valid zip archive?)`);
+  }
+  if (existsSync(join(tmp, "SKILL.md"))) return tmp;
+  const dirs = readdirSync(tmp, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name !== "__MACOSX")
+    .filter((e) => existsSync(join(tmp, e.name, "SKILL.md")));
+  if (dirs.length === 1) return join(tmp, dirs[0].name);
+  throw new Error(`no SKILL.md found in archive ${source}`);
+}
+
 // Clone a repo/URL source into a fresh temp dir and return that dir. The owner/
 // repo shorthand is expanded to a GitHub https URL. Throws a plain-language
 // error on failure (the skill layer frames it for the user).
@@ -33,7 +58,7 @@ export function cloneRepo(source) {
     /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(source) && !existsSync(source)
       ? `https://github.com/${source}`
       : source;
-  const tmp = mkdtempSync(join(tmpdir(), "skill-ninja-clone-"));
+  const tmp = mkdtempSync(join(tmpdir(), "ninja-clone-"));
   try {
     execFileSync("git", ["clone", "--quiet", url, tmp], { stdio: "pipe" });
   } catch {
@@ -53,14 +78,14 @@ export async function statOrNull(p) {
 }
 
 /**
- * Resolve a folder / bare-file / repo-URL source into its SKILL.md content, the
- * working directory it came from (null for a bare file), and a sourceType tag.
- * Throws a plain-language error when the source is unusable (not found, or a
- * folder/repo with no SKILL.md). Shared by `add` and `diff` so the two commands
- * resolve sources identically.
+ * Resolve a folder / bare-file / zip / repo-URL source into its SKILL.md
+ * content, the working directory it came from (null for a bare file), and a
+ * sourceType tag. Throws a plain-language error when the source is unusable
+ * (not found, or a folder/zip/repo with no SKILL.md). Shared by `add` and
+ * `diff` so the two commands resolve sources identically.
  *
- * @param {string} source A folder, a bare SKILL.md file path, or a repo/URL.
- * @returns {Promise<{content: string, dir: string|null, sourceType: "folder"|"file"|"repo"}>}
+ * @param {string} source A folder, a bare SKILL.md file path, a .zip archive, or a repo/URL.
+ * @returns {Promise<{content: string, dir: string|null, sourceType: "folder"|"file"|"zip"|"repo"}>}
  */
 export async function resolveSkillFromSource(source) {
   let sourceType;
@@ -69,6 +94,9 @@ export async function resolveSkillFromSource(source) {
   if (looksLikeRepo(source)) {
     sourceType = "repo";
     dir = cloneRepo(source);
+  } else if (looksLikeZip(source)) {
+    sourceType = "zip";
+    dir = extractZip(source);
   } else {
     const st = await statOrNull(source);
     if (st && st.isDirectory()) {
@@ -88,3 +116,4 @@ export async function resolveSkillFromSource(source) {
   }
   return { content, dir, sourceType };
 }
+

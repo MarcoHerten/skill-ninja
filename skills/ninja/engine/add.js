@@ -26,6 +26,7 @@ import { extractBody } from "./hash.js";
 import { renderDiff } from "./diff.js";
 import { resolveSkillFromSource } from "./source.js";
 import { linkSkill } from "./links.js";
+import { findComparableSkills, renderComparables } from "./compare.js";
 
 const sha256 = (s) => createHash("sha256").update(s, "utf8").digest("hex");
 const today = () => new Date().toISOString().slice(0, 10);
@@ -40,6 +41,7 @@ function parseAddArgs(args) {
     name: null,
     sourceFlag: null,
     fromFlag: null,
+    relationFlag: null,
   };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -48,6 +50,7 @@ function parseAddArgs(args) {
     else if (a === "--name") opts.name = args[++i];
     else if (a === "--source") opts.sourceFlag = args[++i];
     else if (a === "--from") opts.fromFlag = args[++i];
+    else if (a === "--relation") opts.relationFlag = args[++i];
     else if (a.startsWith("--")) return { error: `unknown option: ${a}` };
     else if (opts.source === undefined && opts.prompt === undefined) opts.source = a;
     else return { error: `unexpected argument: ${a}` };
@@ -59,7 +62,7 @@ function parseAddArgs(args) {
     return { error: `--source must be authored, received, or external (got '${opts.sourceFlag}')` };
   }
   if (opts.prompt === undefined && opts.source === undefined) {
-    return { error: "no source given (a folder, file, repo/URL, or --prompt <text>)" };
+    return { error: "no source given (a folder, file, zip, repo/URL, or --prompt <text>)" };
   }
   return opts;
 }
@@ -152,13 +155,21 @@ function nextVersion(existingVersion, contentChanged) {
 
 // Serialize the stamp block (ADR-0005 keys, deterministic order) + the body
 // verbatim. No blank line after the closing fence, so the stored body is byte-
-// identical to the extracted body and its hash round-trips.
+// identical to the extracted body and its hash round-trips. Stamps ADD to the
+// skill's own frontmatter, they never silently drop it: the incoming
+// `description` (the agent-activation text) is preserved (skill-intake rule),
+// as is `relation` (free text, quoted like `from`).
 function stampFrontmatter(stamps, body) {
   const p = stamps.provenance;
   const derivedFrom = p.derived_from === null || p.derived_from === undefined ? "null" : p.derived_from;
+  const relation = p.relation === null || p.relation === undefined ? "null" : `"${p.relation}"`;
+  const description = stamps.description
+    ? `description: "${String(stamps.description).replace(/"/g, '\\"')}"\n`
+    : "";
   const fm =
     "---\n" +
     `name: ${stamps.name}\n` +
+    description +
     `version: ${stamps.version}\n` +
     `updated: ${stamps.updated}\n` +
     `hash: ${stamps.hash}\n` +
@@ -167,6 +178,7 @@ function stampFrontmatter(stamps, body) {
     `  from: "${p.from}"\n` +
     `  imported: ${p.imported}\n` +
     `  derived_from: ${derivedFrom}\n` +
+    `  relation: ${relation}\n` +
     "---\n";
   return fm + body;
 }
@@ -255,7 +267,7 @@ export async function addCommand(args) {
   const opts = parseAddArgs(args);
   if (opts.error) {
     err.write(`${opts.error}\n`);
-    err.write("Try: ninja add <folder|file|repo> [--to claude,zcode] [--name x] [--source received] [--from x]\n");
+    err.write("Try: ninja add <folder|file|zip|repo> [--to claude,zcode] [--name x] [--source received] [--from x] [--relation \"...\"]\n");
     return 2;
   }
 
@@ -272,7 +284,8 @@ export async function addCommand(args) {
   const findings = scanSafety(files);
   out.write(renderSafety(findings));
 
-  // 2. Existing version? Show a diff + capture prior stamps for derived_from.
+  // 2. Existing version? Show a diff + capture prior stamps for derived_from
+  //    and relation carry-forward.
   const skillStoreDir = join(store, resolved.name);
   const storedFile = join(skillStoreDir, "SKILL.md");
   let prior = null;
@@ -282,6 +295,8 @@ export async function addCommand(args) {
     prior = {
       version: storedStamps.version ?? null,
       hash: storedStamps.hash ?? null,
+      description: typeof storedStamps.description === "string" ? storedStamps.description : null,
+      relation: storedStamps.provenance?.relation ?? null,
       body: extractBody(storedText),
     };
   }
@@ -300,11 +315,24 @@ export async function addCommand(args) {
     out.write(renderDiff(prior.body, incomingBody) + "\n");
   }
 
+  // 2.5 Comparable skills (ported from skill-intake): same family under another
+  //     name — shared name stems, overlapping descriptions, or identical
+  //     content. Reported, never blocking; the replace/parallel/merge/reject
+  //     decision is the user's, guided by the skill layer.
+  const incomingFm = parseFrontmatter(resolved.content);
+  const incomingDescription = typeof incomingFm.description === "string" ? incomingFm.description : null;
+  const comparables = await findComparableSkills(store, resolved.name, incomingDescription, resolved.content);
+  out.write("\n" + renderComparables(comparables));
+
   // 3. Place canonically (store copy is the source of truth) + copy assets.
+  // Stamps add to the skill's own frontmatter without dropping it: description
+  // and relation carry forward from the prior stored version when the incoming
+  // version doesn't supply them (--relation wins when given).
   await mkdir(skillStoreDir, { recursive: true });
   const stamped = stampFrontmatter(
     {
       name: resolved.name,
+      description: incomingFm.description ?? (prior ? prior.description : null),
       version,
       updated: today(),
       hash: incomingHash,
@@ -313,6 +341,7 @@ export async function addCommand(args) {
         from: resolved.from,
         imported: today(),
         derived_from: derivedFrom,
+        relation: opts.relationFlag ?? (prior ? prior.relation : null),
       },
     },
     incomingBody,
