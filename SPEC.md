@@ -1,7 +1,7 @@
 # Skill Ninja — v1.1 Specification
 
 > Vocabulary: see [`CONTEXT.md`](./CONTEXT.md) (Skill, Skill Ninja, Provenance, the tiers, Agent root, Tool asymmetry; Ingest, Candidate, Cluster, Wrap).
-> Status: v1.0 command surface implemented and realigned to the sharpened architecture — installation delegated to skills.sh (ADR-0007), `init` bootstraps configuration (ADR-0008). v1.1 adds bulk `ingest` — specified (ADR-0009, ADR-0010), not yet built. The skill is invoked as `/ninja` (e.g. `/ninja init`).
+> Status: v1.0 command surface implemented and realigned to the sharpened architecture — installation delegated to skills.sh (ADR-0007), `init` bootstraps configuration (ADR-0008). v1.1 adds bulk `ingest` — specified (ADR-0009, ADR-0010); build underway: the dry-run classification report is live, wrap previews / cluster resolution / `--apply` follow. The skill is invoked as `/ninja` (e.g. `/ninja init`).
 
 ## Problem Statement
 
