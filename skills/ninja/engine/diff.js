@@ -100,7 +100,8 @@ export function renderDiff(oldText, newText, { context = 1 } = {}) {
 
 // sha256 is imported from ./hash.js.
 // First 8 hex chars + ellipsis — readable in a header, enough to identify.
-const shortHash = (h) => (h ? h.slice(0, 8) + "\u2026" : "unknown");
+// Shared with ingest's cluster report (every loser line shows its hash).
+export const shortHash = (h) => (h ? h.slice(0, 8) + "\u2026" : "unknown");
 
 function plural(n, word) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -120,8 +121,9 @@ function parseDiffArgs(args) {
 // modification); the remaining dels are pure removals and the remaining adds
 // pure additions. (Issue #5: the summary must count added / changed / removed
 // distinctly.) Defined verbatim from the entries so a caller can reason about
-// the count for a known input.
-function summarizeChanges(entries) {
+// the count for a known input. Exported for ingest's needs-decision
+// side-by-side (diff stats between divergent variants).
+export function summarizeChanges(entries) {
   let added = 0;
   let removed = 0;
   let changed = 0;
