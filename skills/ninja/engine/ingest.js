@@ -10,10 +10,13 @@
 // and always travel with it").
 
 import { readdir, readFile, stat, open } from "node:fs/promises";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { execFileSync } from "node:child_process";
 
 import { parseFrontmatter } from "./inventory.js";
+import { bodyHash, extractBody, serializeStamps, splitFrontmatter } from "./hash.js";
+
+const today = () => new Date().toISOString().slice(0, 10);
 
 // Directories never descended into (never candidates, often huge) — the same
 // rule init's scan applies (engine/inventory.js).
@@ -206,8 +209,67 @@ function classifyArchive(path, relPath) {
   });
 }
 
+// --- prompt wrapping (ADR-0010) ------------------------------------------------
+
+// The wrapped SKILL.md carries the ADR-0005 stamps; any frontmatter the prompt
+// document already has is preserved verbatim (it is harmless YAML and keeps
+// information) — except the stamped keys themselves.
+const STAMPED_KEYS = new Set(["name", "version", "updated", "hash", "provenance"]);
+
+// The document's own frontmatter lines, verbatim; [] when it has none. Stamped
+// keys (and their indented continuation lines) are dropped — the stamps win —
+// everything else (blank lines included, ADR-0010 "preserved verbatim") stays
+// exactly as written. Uses the shared splitFrontmatter parse so what counts as
+// frontmatter here can never disagree with what extractBody treats as body.
+function keptFrontmatterLines(content) {
+  const split = splitFrontmatter(content);
+  if (!split) return [];
+  const kept = [];
+  let dropping = false;
+  for (const line of split.fm) {
+    const m = line.match(/^([A-Za-z][\w-]*)\s*:/);
+    if (m) {
+      dropping = STAMPED_KEYS.has(m[1]);
+      if (!dropping) kept.push(line);
+    } else if (!dropping) {
+      kept.push(line); // continuation or blank — original layout survives
+    }
+  }
+  return kept;
+}
+
+/**
+ * Deterministically wrap a prompt document into its skill form (ADR-0010):
+ * `<normalized-stem>/SKILL.md` with ADR-0005 stamps, the document's own
+ * frontmatter preserved verbatim, and the original prompt body byte-preserved.
+ * `description` is never drafted — wrapped prompts stay needs-review until a
+ * later curated pass — and vault/Notion artifacts in the body are carried
+ * as-is, never interpreted. Same input => same wrapped form, byte for byte.
+ *
+ * @param {object} args
+ * @param {string} args.content The prompt document's text.
+ * @param {string} args.stem The filename stem (identity source).
+ * @param {string} args.from The batch label (provenance.from, ADR-0009).
+ * @param {string} args.imported The run date (YYYY-MM-DD).
+ * @returns {{name: string, skillMd: string}}
+ */
+export function wrapPromptDocument({ content, stem, from, imported }) {
+  const name = normalizeIdentity(stem) || "unnamed";
+  const fm = serializeStamps(
+    {
+      name,
+      version: "1.0.0",
+      updated: imported,
+      hash: bodyHash(content),
+      provenance: { source: "received", from, imported, derived_from: null, relation: null },
+    },
+    keptFrontmatterLines(content),
+  );
+  return { name, skillMd: fm + extractBody(content) };
+}
+
 // Classify a loose file candidate.
-async function classifyFile(path, relPath, name) {
+async function classifyFile(path, relPath, name, wrapCtx) {
   if (isSkillFileName(name)) {
     return skillItem({
       relPath,
@@ -217,11 +279,20 @@ async function classifyFile(path, relPath, name) {
     });
   }
   if (name.toLowerCase().endsWith(".md") && !metaFileReason(name)) {
+    const content = (await readSkillText(path)) ?? "";
+    const wrapped = wrapPromptDocument({
+      content,
+      stem: name.replace(/\.md$/i, ""),
+      from: wrapCtx.from,
+      imported: wrapCtx.imported,
+    });
     return {
       classification: PROMPT,
       relPath,
-      identity: normalizeIdentity(name.replace(/\.md$/i, "")),
+      identity: wrapped.name,
       reason: "markdown without skill structure",
+      needsReview: true, // name from a filename, no description — ADR-0010
+      wrapped,
     };
   }
   return { classification: JUNK, relPath, reason: junkReason(name) };
@@ -237,6 +308,9 @@ async function classifyFile(path, relPath, name) {
  */
 export async function analyzeDirectory(root) {
   const candidates = [];
+  // The wrap context every prompt candidate wraps with: the batch label
+  // (provenance.from, ADR-0009) and the run date (ADR-0005 stamps).
+  const wrapCtx = { from: basename(root), imported: today() };
 
   async function walk(dir, prefix) {
     let entries;
@@ -307,7 +381,7 @@ export async function analyzeDirectory(root) {
           continue;
         }
         if (target.isDirectory()) await walk(full, relPath + "/");
-        else candidates.push(await classifyFile(full, relPath, entry.name));
+        else candidates.push(await classifyFile(full, relPath, entry.name, wrapCtx));
         continue;
       }
 
@@ -327,7 +401,7 @@ export async function analyzeDirectory(root) {
         } finally {
           await handle.close();
         }
-        candidates.push(await classifyFile(full, relPath, entry.name));
+        candidates.push(await classifyFile(full, relPath, entry.name, wrapCtx));
         continue;
       }
     }
@@ -350,7 +424,21 @@ function renderItem(candidate) {
   // Identity is the cluster key (ADR-0009) — rendered for the classifications
   // that can become skills and cluster; junk never clusters, so it carries none.
   const identity = candidate.identity !== undefined ? ` (identity: ${candidate.identity})` : "";
-  return `${label.padEnd(28)} ${candidate.relPath}${identity}  ${candidate.reason}`;
+  let out = `${label.padEnd(28)} ${candidate.relPath}${identity}  ${candidate.reason}`;
+  // A prompt candidate renders as the exact wrapped skill `--apply` would store
+  // (ADR-0010): the wrapped name plus a preview of the SKILL.md, indented under
+  // the candidate line.
+  if (candidate.wrapped) {
+    // The preview shows the wrapped SKILL.md indented under the candidate; its
+    // single trailing newline is trimmed (the report adds its own line break).
+    const preview = candidate.wrapped.skillMd
+      .replace(/\n$/, "")
+      .split("\n")
+      .map((l) => (l === "" ? "" : "      " + l))
+      .join("\n");
+    out += `\n      wrap preview -> ${candidate.wrapped.name}/SKILL.md\n${preview}`;
+  }
+  return out;
 }
 
 /**

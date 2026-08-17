@@ -15,6 +15,10 @@ import { join, dirname } from "node:path";
 
 import { createSandbox, runCli } from "./helpers/harness.js";
 
+// Independent SHA-256 for asserting the wrap's content hash against known
+// content (never recomputed via engine code).
+const sha256 = (s) => createHash("sha256").update(s, "utf8").digest("hex");
+
 // --- fixture planters ---------------------------------------------------------
 
 // Plants a skill folder (SKILL.md + optional extra bundled files).
@@ -65,7 +69,7 @@ test("ingest classifies each item with a reason and prints a summary", async () 
     assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
     // One line per item, each naming its classification, its path, and a reason.
     assert.match(stdout, /skill package\s+my-skill\/\s+\(identity: my-skill\)\s+folder containing SKILL\.md/, `got:\n${stdout}`);
-    assert.match(stdout, /prompt document\s+Du-bist-ein-Tester\.md\s+\(identity: du-bist-ein-tester\)\s+markdown without skill structure/, `got:\n${stdout}`);
+    assert.match(stdout, /prompt document \(needs-review\)\s+Du-bist-ein-Tester\.md\s+\(identity: du-bist-ein-tester\)\s+markdown without skill structure/, `got:\n${stdout}`);
     assert.match(stdout, /junk\s+anleitung\.pdf\s+.*pdf/, `got:\n${stdout}`);
     // Summary with counts per classification.
     assert.match(stdout, /Summary: 1 skill package, 1 prompt document, 1 junk/, `got:\n${stdout}`);
@@ -213,12 +217,12 @@ test("identities are NFC-normalized, slugged, and stripped of version/copy marke
         "\\/\\s+\\(identity: pr\u00fcfung-skill\\)",
     );
     assert.match(stdout, nfdLine, `NFD name must yield the NFC identity, got:\n${stdout}`);
-    assert.match(stdout, /prompt document\s+Anti-AI-Writing-v3\.md\s+\(identity: anti-ai-writing\)/, `got:\n${stdout}`);
+    assert.match(stdout, /prompt document \(needs-review\)\s+Anti-AI-Writing-v3\.md\s+\(identity: anti-ai-writing\)/, `got:\n${stdout}`);
     assert.match(stdout, /skill package\s+Artemis Kopie 2\/\s+\(identity: artemis\)/, `got:\n${stdout}`);
     assert.match(stdout, /skill package\s+Checkliste-1\.2\.0\/\s+\(identity: checkliste\)/, `got:\n${stdout}`);
-    assert.match(stdout, /prompt document\s+Reportage-2026-06-14\.md\s+\(identity: reportage\)/, `got:\n${stdout}`);
+    assert.match(stdout, /prompt document \(needs-review\)\s+Reportage-2026-06-14\.md\s+\(identity: reportage\)/, `got:\n${stdout}`);
     assert.match(stdout, /skill package\s+Umsatz — Auswertung\/\s+\(identity: umsatz-auswertung\)/, `got:\n${stdout}`);
-    assert.match(stdout, /prompt document\s+Notizen \(2\)\.md\s+\(identity: notizen\)/, `got:\n${stdout}`);
+    assert.match(stdout, /prompt document \(needs-review\)\s+Notizen \(2\)\.md\s+\(identity: notizen\)/, `got:\n${stdout}`);
     assert.match(stdout, /Summary: 4 skill packages, 3 prompt documents, 0 junk/, `got:\n${stdout}`);
   } finally {
     await sb.cleanup();
@@ -401,6 +405,179 @@ test("ingest argument errors exit non-zero with plain-language messages", async 
     const apply = await runCli(sb.home, ["ingest", src, "--apply"]);
     assert.equal(apply.exitCode, 2);
     assert.match(apply.stderr, /--apply.*not implemented/);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// --- Ticket 02 — wrap preview for prompt documents (ADR-0010) -------------------
+
+// Slice 1 — a prompt document is shown as the exact wrapped skill package:
+// name from the normalized stem, ADR-0005 stamps (provenance.from labels the
+// batch = the ingest directory's basename), the body byte-preserved.
+test("prompt documents render a wrap preview with stamps and the original body", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    const src = join(sb.home, "export");
+    await mkdir(src, { recursive: true });
+    const body = "Du bist ein Tester. Mach gru\u0308ndliche Tests.\n";
+    await writeFile(join(src, "Ein-Prompt.md"), body, "utf8");
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
+
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+    // The candidate line is flagged needs-review and points at the wrap.
+    assert.match(
+      stdout,
+      /prompt document \(needs-review\)\s+Ein-Prompt\.md\s+\(identity: ein-prompt\)\s+markdown without skill structure/,
+      `got:\n${stdout}`,
+    );
+    assert.match(stdout, /wrap preview -> ein-prompt\/SKILL\.md/, `got:\n${stdout}`);
+    // The preview is the wrapped SKILL.md: name, ADR-0005 stamps, provenance
+    // labeled with the batch (the directory basename), body preserved.
+    assert.match(stdout, /^\s{6}name: ein-prompt$/m, `got:\n${stdout}`);
+    assert.match(stdout, /^\s{6}version: 1\.0\.0$/m, `got:\n${stdout}`);
+    assert.match(stdout, new RegExp("^\\s{6}hash: " + sha256(body) + "$", "m"), `hash of the (frontmatter-less) body, got:\n${stdout}`);
+    assert.match(stdout, /^\s{8}from: "export"$/m, `provenance.from = the batch label, got:\n${stdout}`);
+    assert.match(stdout, /^\s{8}source: received$/m, `got:\n${stdout}`);
+    // The prompt body appears inside the preview, byte-preserved.
+    assert.ok(
+      stdout.includes("      Du bist ein Tester. Mach gru\u0308ndliche Tests."),
+      `body in preview, got:\n${stdout}`,
+    );
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Extract one candidate's wrap preview from a report: the indented block after
+// its `wrap preview -> <name>/SKILL.md` marker, de-indented (6 spaces), with
+// trailing blank lines (the report's separators) removed.
+function extractWrapPreview(stdout, name) {
+  const lines = stdout.split("\n");
+  const start = lines.findIndex((l) => l.trim() === `wrap preview -> ${name}/SKILL.md`);
+  assert.ok(start !== -1, `expected a wrap preview for '${name}', got:\n${stdout}`);
+  const out = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (l === "" || l.startsWith("      ")) out.push(l.slice(6));
+    else break;
+  }
+  while (out.length > 0 && out[out.length - 1] === "") out.pop();
+  return out.join("\n");
+}
+
+// Slice 2 — the wrap preserves the document's own frontmatter verbatim (stamped
+// keys excepted) and the body byte-for-byte; `description` is never drafted,
+// but a description the document carries survives.
+test("wrapping preserves original frontmatter and body verbatim; description is never drafted", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    const src = join(sb.home, "export");
+    await mkdir(src, { recursive: true });
+    const body1 = "Du bist ein [[Wiki-Link]] Tester. ![[anhang.png]] bleibt wie er ist.\n";
+    await writeFile(
+      join(src, "Mit-Frontmatter.md"),
+      "---\n" +
+        "name: alter-name\n" +
+        "version: 9.9.9\n" +
+        "tags: [notion, prompt]\n" +
+        "\n" +
+        "category: Testing\n" +
+        "notion_id: 123-abc\n" +
+        "---\n" +
+        body1,
+      "utf8",
+    );
+    // A prompt that already carries a description keeps it (it is information,
+    // not drafted text).
+    const body2 = "Zweiter Prompt.\n";
+    await writeFile(
+      join(src, "Mit-Beschreibung.md"),
+      "---\ndescription: Eine echte Beschreibung\ntags: [x]\n---\n" + body2,
+      "utf8",
+    );
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+
+    const preview1 = extractWrapPreview(stdout, "mit-frontmatter");
+    // Original frontmatter survives verbatim...
+    assert.ok(preview1.includes("tags: [notion, prompt]"), `got:\n${preview1}`);
+    assert.ok(preview1.includes("category: Testing"), `got:\n${preview1}`);
+    assert.ok(preview1.includes("notion_id: 123-abc"), `got:\n${preview1}`);
+    // ...including blank lines between fields (the original layout, not a
+    // re-serialization).
+    const tagsAt = preview1.indexOf("tags: [notion, prompt]");
+    const catAt = preview1.indexOf("category: Testing");
+    assert.ok(
+      tagsAt !== -1 && catAt !== -1 && preview1.slice(tagsAt, catAt).includes("\n\n"),
+      `blank line between fields preserved, got:\n${preview1}`,
+    );
+    // ...stamped keys win: name from the stem, version from the stamp.
+    assert.ok(preview1.includes("name: mit-frontmatter"), `got:\n${preview1}`);
+    assert.ok(!preview1.includes("alter-name"), `got:\n${preview1}`);
+    assert.ok(!preview1.includes("9.9.9"), `got:\n${preview1}`);
+    assert.match(preview1, /version: 1\.0\.0/);
+    // No description is drafted for a description-less prompt.
+    assert.ok(!preview1.includes("description:"), `got:\n${preview1}`);
+    // The body is byte-preserved, wiki-links and dead attachments untouched
+    // (the preview trims exactly the body's trailing newline).
+    assert.ok(preview1.endsWith(body1.replace(/\n$/, "")), `body byte-preserved, got:\n${preview1}`);
+
+    const preview2 = extractWrapPreview(stdout, "mit-beschreibung");
+    assert.ok(preview2.includes("description: Eine echte Beschreibung"), `got:\n${preview2}`);
+    assert.ok(preview2.endsWith(body2.replace(/\n$/, "")), `got:\n${preview2}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 3 — wrapping is deterministic: the same directory, analyzed twice,
+// yields byte-identical reports (same input => same wrapped form).
+test("the wrap preview is byte-stable across runs", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    const src = join(sb.home, "export");
+    await mkdir(src, { recursive: true });
+    await writeFile(
+      join(src, "Stabil.md"),
+      "---\ntags: [a]\n---\nImmer gleich.\n",
+      "utf8",
+    );
+
+    const run1 = await runCli(sb.home, ["ingest", src]);
+    const run2 = await runCli(sb.home, ["ingest", src]);
+    assert.equal(run1.exitCode, 0);
+    assert.equal(run2.exitCode, 0);
+    assert.equal(run1.stdout, run2.stdout, "two dry runs over the same input must be byte-identical");
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice 4 — no double treatment: an item that already classifies as a skill
+// package (folder, archive, bare skill file) is never wrapped.
+test("skill packages are never wrapped — only prompt documents get a wrap preview", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    const src = join(sb.home, "export");
+    await plantPackage(src, "echtes-skill", { frontmatter: "name: echtes-skill\n" });
+    await makeZip(src, "archiv.zip", { "SKILL.md": "---\nname: archiv\n---\n# Skill\n" });
+    await writeFile(join(src, "SKILL.md"), "---\nname: bar\n---\n# Bar\n", "utf8");
+    await writeFile(join(src, "Nur-Prompt.md"), "Nur ein Prompt.\n", "utf8");
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", src]);
+    assert.equal(exitCode, 0, `expected exit 0, stdout:\n${stdout}`);
+
+    const wrapCount = (stdout.match(/wrap preview ->/g) ?? []).length;
+    assert.equal(wrapCount, 1, `exactly one wrap preview (the prompt), got ${wrapCount}:\n${stdout}`);
+    assert.match(stdout, /wrap preview -> nur-prompt\/SKILL\.md/, `got:\n${stdout}`);
+    // The skill packages classify as such — no wrapped form attached.
+    assert.match(stdout, /skill package\s+echtes-skill\//, `got:\n${stdout}`);
+    assert.match(stdout, /skill package\s+archiv\.zip/, `got:\n${stdout}`);
+    assert.match(stdout, /skill package\s+SKILL\.md\s+\(identity: bar\)/, `got:\n${stdout}`);
+    assert.match(stdout, /Summary: 3 skill packages, 1 prompt document, 0 junk/, `got:\n${stdout}`);
   } finally {
     await sb.cleanup();
   }

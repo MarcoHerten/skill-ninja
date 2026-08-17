@@ -22,7 +22,7 @@ import { loadConfig } from "./config.js";
 import { agentRoot } from "./agents.js";
 import { parseFrontmatter } from "./inventory.js";
 import { scanSafety, renderSafety } from "./safety.js";
-import { extractBody } from "./hash.js";
+import { extractBody, serializeStamps } from "./hash.js";
 import { renderDiff } from "./diff.js";
 import { resolveSkillFromSource } from "./source.js";
 import { linkSkill } from "./links.js";
@@ -158,29 +158,10 @@ function nextVersion(existingVersion, contentChanged) {
 // identical to the extracted body and its hash round-trips. Stamps ADD to the
 // skill's own frontmatter, they never silently drop it: the incoming
 // `description` (the agent-activation text) is preserved (skill-intake rule),
-// as is `relation` (free text, quoted like `from`).
+// as is `relation` (free text, quoted like `from`). The serialization itself
+// lives in hash.js (shared with ingest's prompt wrapping, ADR-0010).
 function stampFrontmatter(stamps, body) {
-  const p = stamps.provenance;
-  const derivedFrom = p.derived_from === null || p.derived_from === undefined ? "null" : p.derived_from;
-  const relation = p.relation === null || p.relation === undefined ? "null" : `"${p.relation}"`;
-  const description = stamps.description
-    ? `description: "${String(stamps.description).replace(/"/g, '\\"')}"\n`
-    : "";
-  const fm =
-    "---\n" +
-    `name: ${stamps.name}\n` +
-    description +
-    `version: ${stamps.version}\n` +
-    `updated: ${stamps.updated}\n` +
-    `hash: ${stamps.hash}\n` +
-    "provenance:\n" +
-    `  source: ${p.source}\n` +
-    `  from: "${p.from}"\n` +
-    `  imported: ${p.imported}\n` +
-    `  derived_from: ${derivedFrom}\n` +
-    `  relation: ${relation}\n` +
-    "---\n";
-  return fm + body;
+  return serializeStamps(stamps) + body;
 }
 
 // --- git commit + push (ADR-0007) -------------------------------------------
