@@ -24,6 +24,7 @@ import { parseFrontmatter } from "./inventory.js";
 import { scanSafety, renderSafety } from "./safety.js";
 import { extractBody, serializeStamps } from "./hash.js";
 import { renderDiff } from "./diff.js";
+import { renderChangelogFile, firstEntry } from "./changelog.js";
 import { resolveSkillFromSource } from "./source.js";
 import { linkSkill } from "./links.js";
 import { findComparableSkills, renderComparables } from "./compare.js";
@@ -75,7 +76,10 @@ function parseAddArgs(args) {
 // identically. `gatherAssets` below is add-specific (only ingest copies assets).
 
 // Collect bundled assets of a folder/repo skill: every file except SKILL.md,
-// skipping .git and node_modules. Returns [{absPath, relPath}].
+// skipping .git and node_modules. Returns [{absPath, relPath}]. The package
+// root's CHANGELOG.md is excluded too — the store owns that file (ADR-0012),
+// and the changelog writer is its only writer; a nested changelog (e.g.
+// references/CHANGELOG.md) is an ordinary asset and travels.
 async function gatherAssets(dir) {
   const assets = [];
   async function walk(sub) {
@@ -93,7 +97,7 @@ async function gatherAssets(dir) {
     }
   }
   await walk(dir);
-  return assets;
+  return assets.filter((a) => a.relPath !== "CHANGELOG.md");
 }
 
 /**
@@ -136,10 +140,21 @@ async function resolveSource(opts) {
     assetContents.push({ relPath: a.relPath, content: c });
   }
 
+  // The incoming author changelog (ADR-0012), when the source carries one —
+  // preserved verbatim as the generated file's preamble on first ingest.
+  let authorChangelog = null;
+  if (dir) {
+    try {
+      authorChangelog = await readFile(join(dir, "CHANGELOG.md"), "utf8");
+    } catch {
+      authorChangelog = null;
+    }
+  }
+
   const provSource = opts.sourceFlag || (sourceType === "repo" ? "external" : "received");
   const from = opts.fromFlag || (sourceType === "prompt" ? "prompt" : opts.source);
 
-  return { name, content, assets, assetContents, sourceType, source: opts.source, from, provSource };
+  return { name, content, assets, assetContents, authorChangelog, sourceType, source: opts.source, from, provSource };
 }
 
 // --- stamping ----------------------------------------------------------------
@@ -262,6 +277,7 @@ export async function addCommand(args) {
   // Stamps add to the skill's own frontmatter without dropping it: description
   // and relation carry forward from the prior stored version when the incoming
   // version doesn't supply them (--relation wins when given).
+  const relation = opts.relationFlag ?? (prior ? prior.relation : null);
   await mkdir(skillStoreDir, { recursive: true });
   const stamped = stampFrontmatter(
     {
@@ -275,7 +291,7 @@ export async function addCommand(args) {
         from: resolved.from,
         imported: today(),
         derived_from: derivedFrom,
-        relation: opts.relationFlag ?? (prior ? prior.relation : null),
+        relation,
       },
     },
     incomingBody,
@@ -285,6 +301,30 @@ export async function addCommand(args) {
     const dest = join(skillStoreDir, a.relPath);
     await mkdir(dirname(dest), { recursive: true });
     await copyFile(a.absPath, dest);
+  }
+
+  // 3.5 CHANGELOG.md (ADR-0012): the human-readable projection of the stamps,
+  //     written by the shared changelog writer only — never a plain asset copy
+  //     (gatherAssets excludes it). New skill -> header (+ the preserved
+  //     author preamble) + first entry; re-adds are Issue #8's update path.
+  if (!prior) {
+    await writeFile(
+      join(skillStoreDir, "CHANGELOG.md"),
+      renderChangelogFile({
+        name: resolved.name,
+        authorContent: resolved.authorChangelog ?? "",
+        entries: [
+          firstEntry({
+            version,
+            date: today(),
+            source: resolved.provSource,
+            from: resolved.from,
+            relation,
+          }),
+        ],
+      }),
+      "utf8",
+    );
   }
 
   // 4. Link into the chosen agent roots (resolves tool asymmetry: one canonical

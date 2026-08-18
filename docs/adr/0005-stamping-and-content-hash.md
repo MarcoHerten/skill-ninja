@@ -6,6 +6,11 @@ later commands (`diff`, `status`) can identify a Skill, its version, its
 THE contract T5 (`diff`) depends on, so it is precise about every field and about
 exactly which bytes are hashed.
 
+The stamps also have a human-readable projection: the per-skill `CHANGELOG.md`
+written next to `SKILL.md`, defined in
+[ADR-0012](0012-per-skill-changelog.md). It is a sibling file — never part of
+the body, never part of the content hash.
+
 ## Decision
 
 ### Where stamps live
