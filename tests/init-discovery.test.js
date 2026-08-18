@@ -209,9 +209,10 @@ test("init discovers skills in an expanded agent root (codex) via skills.sh conv
 });
 
 // Antigravity nests its global skills under ~/.gemini but is a distinct agent
-// family from Gemini CLI (skills.sh: antigravity → .gemini/antigravity/skills,
-// antigravity-cli → .gemini/antigravity-cli/skills). Installing "for Gemini"
-// must not be the only way those roots are seen — prove both resolve end-to-end.
+// family from Gemini CLI. Since Antigravity 1.107 the IDE discovers global
+// skills under .gemini/config/skills (verified against the language-server
+// binary); the CLI keeps its own .gemini/antigravity-cli/skills root. Prove
+// both resolve end-to-end, distinct from the Gemini CLI root.
 test("init discovers skills in the Antigravity roots, distinct from the Gemini CLI root", async () => {
   const sb = await createSandbox({
     config: {
@@ -223,7 +224,7 @@ test("init discovers skills in the Antigravity roots, distinct from the Gemini C
   });
   try {
     await plantSkill(sb.home, ".gemini/skills/gemini-skill");
-    await plantSkill(sb.home, ".gemini/antigravity/skills/antigravity-skill");
+    await plantSkill(sb.home, ".gemini/config/skills/antigravity-skill");
     await plantSkill(sb.home, ".gemini/antigravity-cli/skills/cli-skill");
 
     const { exitCode } = await runCli(sb.home, ["init"]);
@@ -237,7 +238,7 @@ test("init discovers skills in the Antigravity roots, distinct from the Gemini C
     assert.equal(byName["antigravity-skill"].scanRoot.ref, "antigravity");
     assert.equal(
       byName["antigravity-skill"].scanRoot.root,
-      join(sb.home, ".gemini", "antigravity", "skills"),
+      join(sb.home, ".gemini", "config", "skills"),
     );
     assert.equal(byName["cli-skill"].scanRoot.ref, "antigravity-cli");
 

@@ -18,12 +18,13 @@ export const AGENT_ROOTS = {
   codex: ".codex/skills",
   cursor: ".cursor/skills",
   gemini: ".gemini/skills",
-  // Antigravity nests its global skills under ~/.gemini too, but in its own
-  // subdirectories — a distinct agent family from Gemini CLI above, not the
-  // same root (the IDE reads .gemini/antigravity/skills, its CLI
-  // .gemini/antigravity-cli/skills; the legacy .gemini/antigravity/global_skills
-  // is read by no current version and deliberately not mapped).
-  antigravity: ".gemini/antigravity/skills",
+  // Antigravity's roots are NOT the Gemini CLI root above, even though both
+  // live under ~/.gemini. Since Antigravity 1.107 the IDE discovers global
+  // customizations (skills included) under ~/.gemini/config — verified against
+  // the language-server binary's discovery hierarchy; the ~/.gemini/antigravity/
+  // skills path still cited by skills.sh and older blog posts is read by no
+  // current version. The CLI keeps its own root (antigravity.google/docs/cli).
+  antigravity: ".gemini/config/skills",
   "antigravity-cli": ".gemini/antigravity-cli/skills",
   copilot: ".copilot/skills",
   windsurf: ".codeium/windsurf/skills",
