@@ -1129,10 +1129,11 @@ test("the applied summary lists discarded losers with hash and reason", async ()
     for (const arc of ["board.zip", "board.skill"]) {
       assert.match(stdout, new RegExp(`loser\\s+${reEsc(arc)}\\s+hash ${h}…\\s+identical content; folder beats archive`), `got:\n${stdout}`);
     }
-    // Only the winner is in the store.
+    // Only the winner is in the store — SKILL.md plus its changelog (ADR-0012:
+    // every stored winner carries one), nothing else.
     const store = storePath(sb.home);
     const entries = await readdir(join(store, "board"), { withFileTypes: true });
-    assert.deepEqual(entries.map((e) => e.name), ["SKILL.md"]);
+    assert.deepEqual(entries.map((e) => e.name), ["CHANGELOG.md", "SKILL.md"]);
   } finally {
     await sb.cleanup();
   }

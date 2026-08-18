@@ -351,3 +351,148 @@ test("add preserves the author preamble and maintenance notes across the append"
   }
 });
 
+// --- Issue #9 — `ingest --apply` bulk path --------------------------------------
+
+// Stored winners get a CHANGELOG.md whose first entry names the batch, and a
+// cluster winner also records the superseded lineage (the divergent losers'
+// hashes — computed independently here from the known bodies). A solo winner
+// has no lineage line.
+test("ingest --apply writes batch changelogs for stored winners", async () => {
+  const sb = await createSandbox();
+  try {
+    await mkdir(join(sb.home, "export"), { recursive: true });
+    const alphaV1Body = "# Alpha v1\n";
+    await plantSkill(sb.home, "export/alpha", { body: alphaV1Body });
+    await plantSkill(sb.home, "export/alpha-v2", { body: "# Alpha v2\n" });
+    await plantSkill(sb.home, "export/beta", { body: "# Beta\n" });
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", join(sb.home, "export"), "--apply"]);
+    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+
+    // Cluster winner (alpha-v2 won on the v2 signal, alpha superseded).
+    const alpha = await readFile(join(storePath(sb.home), "alpha", "CHANGELOG.md"), "utf8");
+    assert.match(alpha, /^# Changelog — alpha\n/, `header, got:\n${alpha}`);
+    assert.ok(alpha.includes(`## 1.0.0 (${today()})`), `entry, got:\n${alpha}`);
+    assert.ok(
+      alpha.includes('- Bulk ingested from batch "export" (source: received).'),
+      `batch line, got:\n${alpha}`,
+    );
+    assert.ok(
+      alpha.includes(`- Won its cluster over 1 superseded variant: ${shortHash(sha256(alphaV1Body))}.`),
+      `lineage line, got:\n${alpha}`,
+    );
+
+    // Solo winner: no lineage line.
+    const beta = await readFile(join(storePath(sb.home), "beta", "CHANGELOG.md"), "utf8");
+    assert.ok(
+      beta.includes('- Bulk ingested from batch "export" (source: received).'),
+      `batch line, got:\n${beta}`,
+    );
+    assert.ok(!beta.includes("Won its cluster"), `no lineage line, got:\n${beta}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Re-ingesting the same directory (the already-stored no-op) leaves every
+// winner's changelog byte-identical.
+test("ingest --apply re-ingest leaves winner changelogs byte-identical", async () => {
+  const sb = await createSandbox();
+  try {
+    await mkdir(join(sb.home, "export"), { recursive: true });
+    await plantSkill(sb.home, "export/beta", { body: "# Beta\n" });
+    await runCli(sb.home, ["ingest", join(sb.home, "export"), "--apply"]);
+    const before = await readFile(join(storePath(sb.home), "beta", "CHANGELOG.md"), "utf8");
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", join(sb.home, "export"), "--apply"]);
+    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+    assert.match(stdout, /Already stored/, `already-stored notice, got:\n${stdout}`);
+    const after = await readFile(join(storePath(sb.home), "beta", "CHANGELOG.md"), "utf8");
+    assert.equal(after, before, "re-ingest must not touch the changelog");
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// A prompt document wrapped into a skill (ADR-0010) gets the same batch
+// changelog as a packaged winner.
+test("ingest --apply writes a changelog for a wrapped prompt-document winner", async () => {
+  const sb = await createSandbox();
+  try {
+    await mkdir(join(sb.home, "prompts"), { recursive: true });
+    await writeFile(join(sb.home, "prompts", "notes.md"), "# Notizen\nErfasse Entscheidungen.\n", "utf8");
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", join(sb.home, "prompts"), "--apply"]);
+    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+
+    const changelog = await readFile(join(storePath(sb.home), "notes", "CHANGELOG.md"), "utf8");
+    assert.match(changelog, /^# Changelog — notes\n/, `header, got:\n${changelog}`);
+    assert.ok(
+      changelog.includes('- Bulk ingested from batch "prompts" (source: received).'),
+      `batch line, got:\n${changelog}`,
+    );
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// A needs-decision cluster (stored copy differs from the incoming candidates)
+// never touches the stored skill's changelog — skipping the store write skips
+// the changelog write.
+test("ingest --apply never touches a stored skill's changelog on a needs-decision conflict", async () => {
+  const sb = await createSandbox();
+  try {
+    const stored = await plantSkill(sb.home, "incoming/gamma", { body: "# Gamma stored\n" });
+    await runCli(sb.home, ["add", stored.dir]);
+    const before = await readStoredChangelog(sb.home, "gamma");
+
+    // Same identity (the copy marker normalizes away), different content, no
+    // version signal -> needs-decision against the stored copy.
+    await mkdir(join(sb.home, "export"), { recursive: true });
+    await plantSkill(sb.home, "export/gamma-copy", { body: "# Gamma incoming\n" });
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", join(sb.home, "export"), "--apply"]);
+    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+    assert.match(stdout, /needs-decision|NEEDS DECISION|conflict/i, `conflict reported, got:\n${stdout}`);
+
+    const after = await readStoredChangelog(sb.home, "gamma");
+    assert.equal(after, before, "a needs-decision cluster must not touch the stored changelog");
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// A winner package carrying its own CHANGELOG.md keeps that content as the
+// author preamble beneath the generated header — the package root's changelog
+// is store-owned, never a plain asset copy.
+test("ingest --apply preserves a winner package's own changelog as the author preamble", async () => {
+  const sb = await createSandbox();
+  try {
+    const pkg = await plantSkill(sb.home, "export/delta", { body: "# Delta\n" });
+    await writeFile(
+      join(pkg.dir, "CHANGELOG.md"),
+      [
+        "# Changelog — delta (author's own file)",
+        "",
+        "- Erstfassung aus dem Workshop.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", join(sb.home, "export"), "--apply"]);
+    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+
+    const changelog = await readFile(join(storePath(sb.home), "delta", "CHANGELOG.md"), "utf8");
+    assert.match(changelog, /^# Changelog — delta\n/, `generated header, got:\n${changelog}`);
+    assert.ok(
+      changelog.indexOf("Erstfassung aus dem Workshop.") <
+        changelog.indexOf(`## 1.0.0 (${today()})`),
+      `author content above the entry, got:\n${changelog}`,
+    );
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+

@@ -31,6 +31,7 @@ import { execFileSync } from "node:child_process";
 import { parseFrontmatter } from "./inventory.js";
 import { bodyHash, extractBody, serializeStamps, splitFrontmatter } from "./hash.js";
 import { lineDiff, summarizeChanges, shortHash } from "./diff.js";
+import { renderChangelogFile, batchEntry } from "./changelog.js";
 import { scanSafety } from "./safety.js";
 import { loadConfig } from "./config.js";
 import { ensureStore } from "./discover.js";
@@ -1079,14 +1080,14 @@ function winnerLineage(cluster) {
 // 2026-08-17 update in ADR-0005); prompt winners store their wrapped form,
 // re-wrapped only to fill the lineage the cluster step decided (the body, name,
 // and all other stamps are byte-identical to the previewed wrap).
-function storedSkillText(winner, cluster, { from, imported }) {
+function storedSkillText(winner, cluster, { from, imported }, lineage) {
   if (winner.wrapped) {
     return wrapPromptDocument({
       content: winner.content,
       stem: winner.stem,
       from,
       imported,
-      derivedFrom: winnerLineage(cluster),
+      derivedFrom: lineage,
     }).skillMd;
   }
   return (
@@ -1100,7 +1101,7 @@ function storedSkillText(winner, cluster, { from, imported }) {
           source: "received",
           from,
           imported,
-          derived_from: winnerLineage(cluster),
+          derived_from: lineage,
           relation: null,
         },
       },
@@ -1112,8 +1113,11 @@ function storedSkillText(winner, cluster, { from, imported }) {
 // Collect a package's bundled assets (they always travel with it, ADR-0009):
 // every file under the package dir except macOS noise, VCS/runtime dirs, and
 // skill files — the stamped SKILL.md is written separately, and a package
-// stores exactly one skill file. The same file set the safety scan walks.
-async function packageAssetFiles(pkgDir) {
+// stores exactly one skill file. The package ROOT's CHANGELOG.md is excluded
+// too (ADR-0012): the store owns that file and the changelog writer is its
+// only writer; a nested changelog is an ordinary asset. The same file set the
+// safety scan walks.
+async function packageAssetFiles(pkgDir, atRoot = true) {
   const files = [];
   let entries;
   try {
@@ -1123,10 +1127,11 @@ async function packageAssetFiles(pkgDir) {
   }
   for (const e of entries.sort(byName)) {
     if ([".git", "node_modules", "__MACOSX", ".DS_Store"].includes(e.name)) continue;
+    if (atRoot && e.name === "CHANGELOG.md") continue;
     if (e.isFile()) {
       if (!isSkillFileName(e.name)) files.push({ absPath: join(pkgDir, e.name), relPath: e.name });
     } else if (e.isDirectory()) {
-      for (const f of await packageAssetFiles(join(pkgDir, e.name))) {
+      for (const f of await packageAssetFiles(join(pkgDir, e.name), false)) {
         files.push({ absPath: f.absPath, relPath: e.name + "/" + f.relPath });
       }
     }
@@ -1147,23 +1152,36 @@ async function extractArchiveToTemp(archivePath) {
   return tmp;
 }
 
-// Copy one winner's bundled assets next to its stamped SKILL.md. Folders copy
-// straight out of the source; archives are unpacked to temp first, the package
-// root being the skill member's directory. Bare files and prompts have none.
+// readFile that resolves to null for a missing path instead of throwing.
+const readTextOrNull = async (p) => {
+  try {
+    return await readFile(p, "utf8");
+  } catch {
+    return null;
+  }
+};
+
+// Copy one winner's bundled assets next to its stamped SKILL.md and return the
+// author changelog the winner's package carries (ADR-0012 preamble; null when
+// it has none — bare files and prompts never do). Folders copy straight out of
+// the source; archives are unpacked to temp first, the package root being the
+// skill member's directory.
 async function copyWinnerAssets(root, winner, destDir) {
   if (winner.packaging === "folder") {
     await copyAssets(await packageAssetFiles(join(root, winner.relPath)), destDir);
-    return;
+    return await readTextOrNull(join(root, winner.relPath, "CHANGELOG.md"));
   }
   if (winner.packaging === "archive" && winner.skillFile) {
     const tmp = await extractArchiveToTemp(join(root, winner.relPath));
     try {
       const pkgDir = join(tmp, dirname(winner.skillFile));
       await copyAssets(await packageAssetFiles(pkgDir), destDir);
+      return await readTextOrNull(join(pkgDir, "CHANGELOG.md"));
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }
   }
+  return null;
 }
 
 async function copyAssets(files, destDir) {
@@ -1216,8 +1234,27 @@ async function applyClusters(root, store, clusters, candidates) {
     }
     const destDir = join(store, cluster.identity);
     await mkdir(destDir, { recursive: true });
-    await writeFile(join(destDir, "SKILL.md"), storedSkillText(cluster.winner, cluster, ctx), "utf8");
-    await copyWinnerAssets(root, cluster.winner, destDir);
+    // The lineage is decided once and shared by the SKILL.md stamps and the
+    // changelog entry — the two cannot disagree.
+    const lineage = winnerLineage(cluster);
+    await writeFile(join(destDir, "SKILL.md"), storedSkillText(cluster.winner, cluster, ctx, lineage), "utf8");
+    const authorChangelog = await copyWinnerAssets(root, cluster.winner, destDir);
+    await writeFile(
+      join(destDir, "CHANGELOG.md"),
+      renderChangelogFile({
+        name: cluster.identity,
+        authorContent: authorChangelog ?? "",
+        entries: [
+          batchEntry({
+            version: "1.0.0", // only new identities are ever stored
+            date: ctx.imported,
+            from: ctx.from,
+            supersededHashes: lineage ? lineage.split(", ") : [],
+          }),
+        ],
+      }),
+      "utf8",
+    );
     result.stored.push({ identity: cluster.identity, winner: cluster.winner });
     result.losers.push(...cluster.losers);
   }
