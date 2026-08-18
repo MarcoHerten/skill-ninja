@@ -64,3 +64,18 @@ path.
   and paths are data, never markup.
 - `status.js` gains small exports (`groupSkills`, `isPersonal`, `versionLine`,
   `plural`) that `page.js` consumes — the grouping rules keep exactly one home.
+
+## Update (2026-08-18 — availability cockpit, ADR-0014)
+
+The "no scripts" clause is relaxed to: **no network, no external assets, no
+server** — inline vanilla JavaScript is allowed. The page gained the
+availability layer's selection cockpit: a search box, availability / tier /
+category filters, a checkbox per skill, and a generated read-only
+`ninja on|manual|off --apply …` command line to copy and run. The page itself
+still executes nothing and writes nothing — it remains one self-contained
+static file, regenerated wholesale by `ninja page`, opening offline via
+`file://`; the script only filters DOM nodes the server-side render produced
+and strings together a command from their data attributes. Bulk execution
+stays in the engine behind `--apply`, preserving the two-phase approval
+model (the copy-command is the proposal, the CLI run with `--apply` the
+approval).

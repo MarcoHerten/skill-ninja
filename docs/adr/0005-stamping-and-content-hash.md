@@ -136,3 +136,23 @@ free text, emitted only when set, serialized by the same `serializeStamps`
 - **The stamp is not a content signal.** Like frontmatter generally, the
   category line is outside the hashed body; it is metadata about the skill,
   not part of its instructions.
+
+## Update (2026-08-18 — availability stamps, ADR-0014)
+
+The availability layer adds three more optional frontmatter keys, written only
+by `ninja on|manual|off` (never by `add` — re-adding a skill that carries them
+is refused until `ninja on` clears them):
+
+- `availability: "manual" | "off"` — the Availability state; absent = Active.
+- `activation_text` — while Manual, the preserved original `description`;
+  switching back to Active restores it to `description` verbatim.
+- `disable-model-invocation: true` — while Manual, for the Claude-Code-family
+  roots that honor the key natively.
+
+All three follow the `cat assign` invariants: frontmatter-only edits (the
+`availability <name>`-style commits record them; no CHANGELOG entry), body and
+content hash untouched, hash-invariant by construction. The placeholder
+description written while Manual is a single-line quoted scalar, and restoring
+`activation_text` re-serializes it the same way `add` does — multi-line or
+block-scalar originals come back folded to one line, matching how the stamp
+serializer has always treated descriptions.

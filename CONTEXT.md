@@ -70,6 +70,20 @@ _Avoid_: extension, add-on.
 Skill Ninja's local source-of-truth directory for Personal skills — the copy every agent-root link points to. A git repo with a private remote; `add` commits and pushes.
 _Avoid_: the library (that's Skill-Library), the repo.
 
+### Availability — the lever on the context window
+
+**Availability**:
+Whether — and how — an agent may load a skill: **Active** (loaded, auto-triggered), **Manual** (listed and invocable by name, never auto-triggered), or **Off** (loaded nowhere). Skill Ninja's lever on the context window; switched with `on` / `manual` / `off`.
+_Avoid_: activation mode, enablement, visibility.
+
+**Activation Text**:
+A skill's `description` in its role as the text an agent matches on to trigger it. While a skill is Manual, it is preserved under the `activation_text` stamp; switching back to Active restores it to `description`.
+_Avoid_: trigger text, backup description.
+
+**Profile**:
+A named, reusable set of skills that `profile apply` pulls into a project's working directory via project-local links — additive on the global Availability baseline, so one repo can carry its content skills and another its code skills.
+_Avoid_: setup, bundle, preset, workspace config.
+
 ### The environment
 
 **Agent root**:
