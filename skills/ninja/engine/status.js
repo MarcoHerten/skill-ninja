@@ -22,6 +22,8 @@ const AGENT_LABELS = {
   codex: "Codex root",
   cursor: "Cursor root",
   gemini: "Gemini root",
+  antigravity: "Antigravity root",
+  "antigravity-cli": "Antigravity CLI root",
   copilot: "Copilot root",
   windsurf: "Windsurf root",
   roo: "Roo root",

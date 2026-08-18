@@ -26,6 +26,8 @@ const AGENT_ROOTS = {
   codex: ".codex/skills",
   cursor: ".cursor/skills",
   gemini: ".gemini/skills",
+  antigravity: ".gemini/antigravity/skills",
+  "antigravity-cli": ".gemini/antigravity-cli/skills",
   copilot: ".copilot/skills",
   windsurf: ".codeium/windsurf/skills",
   roo: ".roo/skills",

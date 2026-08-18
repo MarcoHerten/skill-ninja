@@ -208,3 +208,45 @@ test("init discovers skills in an expanded agent root (codex) via skills.sh conv
   }
 });
 
+// Antigravity nests its global skills under ~/.gemini but is a distinct agent
+// family from Gemini CLI (skills.sh: antigravity → .gemini/antigravity/skills,
+// antigravity-cli → .gemini/antigravity-cli/skills). Installing "for Gemini"
+// must not be the only way those roots are seen — prove both resolve end-to-end.
+test("init discovers skills in the Antigravity roots, distinct from the Gemini CLI root", async () => {
+  const sb = await createSandbox({
+    config: {
+      store: "~/.skill-ninja/store",
+      agents: ["gemini", "antigravity", "antigravity-cli"],
+      vaults: [],
+      projects: [],
+    },
+  });
+  try {
+    await plantSkill(sb.home, ".gemini/skills/gemini-skill");
+    await plantSkill(sb.home, ".gemini/antigravity/skills/antigravity-skill");
+    await plantSkill(sb.home, ".gemini/antigravity-cli/skills/cli-skill");
+
+    const { exitCode } = await runCli(sb.home, ["init"]);
+    assert.equal(exitCode, 0);
+
+    const cache = await readInventory(sb.home);
+    const byName = Object.fromEntries(cache.skills.map((s) => [s.name, s]));
+
+    assert.equal(byName["gemini-skill"].scanRoot.ref, "gemini", "Gemini CLI root stays its own family");
+    assert.equal(byName["antigravity-skill"].scanRoot.kind, "agent");
+    assert.equal(byName["antigravity-skill"].scanRoot.ref, "antigravity");
+    assert.equal(
+      byName["antigravity-skill"].scanRoot.root,
+      join(sb.home, ".gemini", "antigravity", "skills"),
+    );
+    assert.equal(byName["cli-skill"].scanRoot.ref, "antigravity-cli");
+
+    // The status view labels the Antigravity family distinctly.
+    const { stdout } = await runCli(sb.home, ["status"]);
+    assert.match(stdout, /Antigravity root/, `expected the Antigravity scan-root label, got:\n${stdout}`);
+    assert.match(stdout, /Antigravity CLI root/, `expected the Antigravity CLI scan-root label, got:\n${stdout}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
