@@ -54,8 +54,8 @@ export const bodyHash = (text) => sha256(extractBody(text));
 // category), escaping inner double quotes so the YAML stays one scalar.
 // Exported because `cat assign` writes a `category:` line with the exact same
 // quoting, and the two must never drift.
-const quote = (v) => `"${String(v).replace(/"/g, '\\"')}"`;
-export { quote as quoteValue };
+export const quoteValue = (v) => `"${String(v).replace(/"/g, '\\"')}"`;
+const quote = quoteValue;
 
 /**
  * Serialize the ADR-0005 stamp block (deterministic key order) as a complete

@@ -21,7 +21,7 @@ import { join } from "node:path";
 
 import { loadConfig } from "./config.js";
 import { inventoryPath } from "./inventory.js";
-import { groupByCategory, groupDescription, groupTier, DEFAULT_CATEGORIES } from "./cat.js";
+import { groupByCategory, groupDescription, groupTier, resolveVocabulary } from "./cat.js";
 import {
   groupSkills,
   plural,
@@ -132,8 +132,7 @@ export function renderStatusPage(inventory, config) {
   // The catalog regrouping (Issue #10): skills render under category headings
   // (vocabulary order, "Uncategorized" last) — the same groupByCategory `cat`
   // uses, so the page and the CLI catalog can never disagree.
-  const vocabulary = config?.categories?.length ? config.categories : DEFAULT_CATEGORIES;
-  const sections = groupByCategory(groups, vocabulary);
+  const sections = groupByCategory(groups, resolveVocabulary(config));
   const skillsHtml = sections.length
     ? sections
         .map(

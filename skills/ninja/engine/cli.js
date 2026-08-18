@@ -13,7 +13,7 @@ import { buildInventory, writeInventory, inventoryPath } from "./inventory.js";
 import { bootstrapConfig, seedConfig, ensureStore } from "./discover.js";
 import { renderStatus } from "./status.js";
 import { pageCommand } from "./page.js";
-import { catCommand } from "./cat.js";
+import { catCommand, resolveVocabulary } from "./cat.js";
 import { addCommand } from "./add.js";
 import { diffCommand } from "./diff.js";
 import { doctorCommand } from "./doctor.js";
@@ -83,13 +83,17 @@ async function showConfig() {
   }
   pushListSection(lines, "vaults", config.vaults);
   pushListSection(lines, "projects", config.projects);
-  // The category vocabulary (Issue #10): the configured list, or a pointer to
-  // the engine defaults so the vocabulary stays discoverable.
+  // The category vocabulary (Issue #10): the configured list when one is set,
+  // else a pointer to the engine defaults so the vocabulary stays discoverable.
+  const categories = resolveVocabulary(config);
+  const configured = Array.isArray(config.categories);
   lines.push("", "categories:");
-  if (!config.categories || config.categories.length === 0) {
+  if (!configured) {
     lines.push("  (engine defaults — see `ninja cat`)");
+  } else if (categories.length === 0) {
+    lines.push("  (configured empty — every category is custom)");
   } else {
-    for (const c of config.categories) lines.push(`  ${c}`);
+    for (const c of categories) lines.push(`  ${c}`);
   }
   process.stdout.write(lines.join("\n") + "\n");
   return 0;

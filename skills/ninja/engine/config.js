@@ -36,6 +36,17 @@ export async function loadConfig(home = homedir()) {
   return normalizeConfig(JSON.parse(raw), home);
 }
 
+// Normalize the category vocabulary (Issue #10): an array of non-empty
+// strings, else null (= the engine defaults). Shared with `init`'s config
+// seeding so a hand-edited list survives re-seeding unchanged — one rule, two
+// callers. An explicitly configured array (even empty) is preserved as-is:
+// it replaces the defaults wholesale (ADR-0013).
+export function normalizeCategories(value) {
+  return Array.isArray(value)
+    ? value.filter((c) => typeof c === "string" && c.trim() !== "")
+    : null;
+}
+
 export function normalizeConfig(parsed, home) {
   const agents = Array.isArray(parsed.agents)
     ? parsed.agents.filter((a) => typeof a === "string")
@@ -52,8 +63,6 @@ export function normalizeConfig(parsed, home) {
     projects: expandStrings(parsed.projects),
     // The category vocabulary for `cat` / `page` (Issue #10). Null = the
     // engine defaults (DEFAULT_CATEGORIES in cat.js) — resolveVocabulary picks.
-    categories: Array.isArray(parsed.categories)
-      ? parsed.categories.filter((c) => typeof c === "string" && c.trim() !== "")
-      : null,
+    categories: normalizeCategories(parsed.categories),
   };
 }

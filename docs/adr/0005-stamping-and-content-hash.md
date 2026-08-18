@@ -25,6 +25,8 @@ canonical copy's stamps — while the skill **body** is preserved verbatim.
 | key | value |
 | --- | --- |
 | `name` | the Skill name (incoming frontmatter `name`, else the source folder's basename, else `--name`). |
+| `description` | the agent-activation text — preserved from incoming frontmatter, carried forward from the prior stored version on re-add when the incoming version has none. |
+| `category` | the category stamp (ADR-0013), quoted free text. Omitted when unset. Same carry-forward rule as `description`; `cat assign` writes/updates it in place (frontmatter-only edit — body, version, and hash untouched). |
 | `version` | semver-ish. New skill → `1.0.0`. Re-add with **changed** content → PATCH bump (`1.0.0`→`1.0.1`). Re-add with **identical** content → version unchanged. Unparseable prior version → `1.0.0`. |
 | `updated` | ISO date (`YYYY-MM-DD`) of this ingest. |
 | `hash` | SHA-256 **content hash** (see below). Top-level, not under `provenance`. |
@@ -120,3 +122,17 @@ body-only hash, with two refinements this ADR now covers explicitly:
   "losers are not stored — the winner's provenance records the lineage".
   `add`'s single-prior-hash form is the N=1 case; consumers must treat the
   field as free-text lineage, not assume one 64-hex hash.
+
+## Update (2026-08-18 — category stamps, ADR-0013)
+
+The stamp block gains an optional `category` key (see the table above): quoted
+free text, emitted only when set, serialized by the same `serializeStamps`
+(every writer keeps one deterministic key order). Two invariants carry over:
+
+- **`cat assign` is a frontmatter-only edit.** It replaces/inserts exactly one
+  `category:` line in the stored copy and touches nothing else — the body,
+  `version`, `updated`, and the content hash never move, so a categorization
+  is never a content change in `diff`'s eyes and never bumps a version.
+- **The stamp is not a content signal.** Like frontmatter generally, the
+  category line is outside the hashed body; it is metadata about the skill,
+  not part of its instructions.

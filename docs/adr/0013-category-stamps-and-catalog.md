@@ -38,10 +38,13 @@ you don't own yet.
 - **The vocabulary.** A default category list ships in the engine (generalized
   from the reference taxonomy: Strategy & Management; Marketing & Social;
   Content & Writing; Design & Documents; Education & Specialties; Meta & Agent
-  Tooling). The config's `categories: [...]` replaces it (user-only, never
-  detected, survives `init` re-seeding like `projects`). Stamps stay free-form:
-  a category outside the vocabulary renders as its own group, and `cat assign`
-  **warns but never blocks** so a typo doesn't silently fragment the catalog.
+  Tooling). The config's `categories: [...]` replaces it — any configured
+  array, including an explicitly empty one, replaces the defaults wholesale;
+  only an absent/null field falls back to them. The list is user-only, never
+  detected, and survives `init` re-seeding like `projects`. Stamps stay
+  free-form: a category outside the vocabulary renders as its own group, and
+  `cat assign` **warns but never blocks** so a typo doesn't silently fragment
+  the catalog.
 - **The catalog view — `ninja cat [<term>]`.** Reads the **cached inventory**
   (never re-scans): skills grouped under category headings in vocabulary order,
   then custom categories alphabetically, `Uncategorized` always last — the
@@ -84,7 +87,10 @@ you don't own yet.
 
 - `assign` requires the skill to be in the canonical store; loose copies are
   `add`/`doctor` territory first (that is by design — the stamp lands on the
-  canonical copy).
+  canonical copy). "Never touches External skills" is enforced structurally:
+  `assign` writes only under the store path, and the store holds Personal
+  skills by definition (ADR-0007's two linking systems are separated by tier) —
+  skills.sh's installed copies are never a write target.
 - A group whose occurrences disagree on category shows the first scanned
   occurrence's category (one placement per skill); resolving the disagreement
   is a re-assign away.

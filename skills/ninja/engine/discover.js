@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 
 import { discoverAgents } from "./agents.js";
+import { normalizeCategories } from "./config.js";
 
 const CONFIG_DIR = ".skill-ninja";
 const CONFIG_FILE = "config.json";
@@ -123,9 +124,8 @@ export async function bootstrapConfig(home) {
     vaults: has(existing.vaults) ? existing.vaults : discoveredVaults,
     projects: Array.isArray(existing.projects) ? existing.projects : [],
     // The category vocabulary (Issue #10) is user-only — never detected, and a
-    // hand-edited list survives re-seeding like `projects` does.
-    categories: Array.isArray(existing.categories)
-      ? existing.categories.filter((c) => typeof c === "string" && c.trim() !== "")
-      : null,
+    // hand-edited list survives re-seeding like `projects` does (normalized by
+    // the shared rule in config.js, including an explicitly empty list).
+    categories: normalizeCategories(existing.categories),
   };
 }

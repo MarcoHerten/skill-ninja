@@ -89,8 +89,8 @@ test("cat prints the landscape grouped by category with descriptions, tier badge
 
     const init = await runCli(sb.home, ["init"]);
     assert.equal(init.exitCode, 0, init.stderr);
-    const { stdout, exitCode } = await runCli(sb.home, ["cat"]);
-    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+    const { stdout, stderr, exitCode } = await runCli(sb.home, ["cat"]);
+    assert.equal(exitCode, 0, `expected exit 0, stderr:\n${stderr}`);
 
     // Header + counts: 5 skills, 3 categorized (2 uncategorized).
     assert.match(stdout, /Skill Ninja catalog/);
@@ -257,8 +257,8 @@ test("cat assign stamps the category on the stored copy, leaves body/version/has
     const store = makeStoreGitRepo(sb.home);
     const before = await readFile(planted.file, "utf8");
 
-    const { stdout, exitCode } = await runCli(sb.home, ["cat", "assign", "aphrodite", "Marketing & Social"]);
-    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+    const { stdout, stderr, exitCode } = await runCli(sb.home, ["cat", "assign", "aphrodite", "Marketing & Social"]);
+    assert.equal(exitCode, 0, `expected exit 0, stderr:\n${stderr}`);
 
     const after = await readFile(planted.file, "utf8");
     const stamps = parseStamps(after);
@@ -356,16 +356,18 @@ test("page groups skills under category headings in the same order as cat, with 
   try {
     await plantSkill(sb.home, ".claude/skills/aphrodite", {
       frontmatter: { name: "aphrodite", category: "Marketing & Social", description: "Writes LinkedIn posts." },
+      body: "# Aphrodite body\n",
     });
     await plantSkill(sb.home, ".claude/skills/mcp-builder", {
       frontmatter: { name: "mcp-builder", category: "Meta & Agent Tooling" },
+      body: "# MCP body\n",
     });
     await plantSkill(sb.home, ".claude/skills/bare");
     const init = await runCli(sb.home, ["init"]);
     assert.equal(init.exitCode, 0, init.stderr);
 
-    const { stdout, exitCode } = await runCli(sb.home, ["page"]);
-    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+    const { stdout, stderr, exitCode } = await runCli(sb.home, ["page"]);
+    assert.equal(exitCode, 0, `expected exit 0, stderr:\n${stderr}`);
     const html = await readPage(sb.home);
 
     // Category sections as h2, vocabulary order, Uncategorized last.
@@ -378,6 +380,43 @@ test("page groups skills under category headings in the same order as cat, with 
     // The description renders under the skill; missing descriptions stay absent.
     assert.ok(html.includes("Writes LinkedIn posts."), `expected the description`);
 
+    // Membership cross-check: the page's category sections contain exactly the
+    // skills the CLI catalog reports per category (same grouping code — proven,
+    // not assumed).
+    const cat = await runCli(sb.home, ["cat"]);
+    assert.equal(cat.exitCode, 0);
+    const expected = {};
+    let heading = null;
+    for (const line of cat.stdout.split("\n")) {
+      const m = line.match(/^(.+) \(\d+\):$/);
+      if (m) {
+        heading = m[1];
+        expected[heading] = [];
+      } else if (heading && line.startsWith("  ")) {
+        // Strip tier badge and any spread/duplicate tags from the entry name.
+        expected[heading].push(line.trim().split(" — ")[0].replace(/ \[[^\]]*\]/g, ""));
+      }
+    }
+    const pageSections = html
+      .split("<h2>")
+      .slice(1)
+      .map((chunk) => ({
+        category: chunk
+          .slice(0, chunk.indexOf("</h2>"))
+          .replace(/\s*\(\d+\)$/, "")
+          .replace(/&amp;/g, "&"),
+        names: [...chunk.matchAll(/<h3>(.*?)<\/h3>/g)].map((m) =>
+          m[1].replace(/<[^>]+>/g, "").trim().replace(/ \[[^\]]*\]/g, ""),
+        ),
+      }))
+      // The page has one more h2 section (Broken symlinks) with no skills.
+      .filter((s) => expected[s.category] !== undefined);
+    assert.deepEqual(
+      Object.fromEntries(pageSections.map((s) => [s.category, s.names])),
+      expected,
+      `page sections must match the catalog membership`,
+    );
+
     // A category value is data: escaped, never markup.
     await plantSkill(sb.home, ".claude/skills/angry", {
       frontmatter: { name: "angry", category: "A<b>&c" },
@@ -387,6 +426,63 @@ test("page groups skills under category headings in the same order as cat, with 
     const html2 = await readPage(sb.home);
     assert.ok(html2.includes("A&lt;b&gt;&amp;c"), `expected the escaped category`);
     assert.ok(!html2.includes("A<b>&c"), `the raw category must never appear as markup`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// --- More init / vocabulary edges ----------------------------------------------
+
+test("init records null category/description on malformed frontmatter and never throws", async () => {
+  const sb = await createSandbox();
+  try {
+    // A SKILL.md whose frontmatter never closes — unparseable, must not crash
+    // the scan (ADR-0003: `init` never throws on a malformed SKILL.md).
+    const dir = join(sb.home, ".claude/skills/malformed");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "SKILL.md"),
+      "---\nname: malformed\ncategory: Marketing & Social\n# the fence never closes\n",
+      "utf8",
+    );
+
+    const { exitCode } = await runCli(sb.home, ["init"]);
+    assert.equal(exitCode, 0);
+
+    const cache = await readInventory(sb.home);
+    const found = cache.skills.find((s) => s.name === "malformed");
+    assert.ok(found, `expected the malformed skill in the inventory`);
+    assert.equal(found.category, null);
+    assert.equal(found.description, null);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+test("cat treats an explicitly empty configured vocabulary as custom-everything", async () => {
+  const sb = await createSandbox({
+    config: {
+      store: "~/.skill-ninja/store",
+      agents: ["claude"],
+      vaults: [],
+      projects: [],
+      categories: [],
+    },
+  });
+  try {
+    await plantSkill(sb.home, ".claude/skills/b", { frontmatter: { name: "b", category: "Beta Group" } });
+    await plantSkill(sb.home, ".claude/skills/a", { frontmatter: { name: "a", category: "Alpha Group" } });
+    await runCli(sb.home, ["init"]);
+
+    const { stdout, exitCode } = await runCli(sb.home, ["cat"]);
+    assert.equal(exitCode, 0);
+    // No vocabulary ranks apply: categories fall back to alphabetical order.
+    const iAlpha = stdout.indexOf("Alpha Group (1):");
+    const iBeta = stdout.indexOf("Beta Group (1):");
+    assert.ok(iAlpha !== -1 && iBeta !== -1 && iAlpha < iBeta, `got:\n${stdout}`);
+
+    const cfg = await runCli(sb.home, ["config", "show"]);
+    assert.match(cfg.stdout, /configured empty — every category is custom/);
   } finally {
     await sb.cleanup();
   }

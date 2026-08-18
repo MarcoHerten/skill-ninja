@@ -49,29 +49,34 @@ export const DEFAULT_CATEGORIES = [
 // The heading unstamped skills group under — always rendered last.
 export const UNCATEGORIZED = "Uncategorized";
 
-// The effective vocabulary: the configured list when one is set (a non-empty
-// array of strings), else the engine defaults.
-function resolveVocabulary(config) {
-  return config?.categories?.length ? config.categories : DEFAULT_CATEGORIES;
+// The effective vocabulary: the configured list when one is set — any array,
+// including an explicitly empty one, replaces the defaults wholesale (ADR-0013);
+// null/absent means the engine defaults. Exported because `page` and
+// `config show` resolve the same vocabulary — one rule, three consumers.
+export function resolveVocabulary(config) {
+  return Array.isArray(config?.categories) ? config.categories : DEFAULT_CATEGORIES;
 }
 
-// A group's category: the first non-null `category` among its occurrences
-// (scan order). Occurrences of one skill rarely disagree; when they do, the
-// first scanned wins — the catalog shows one placement per skill.
-function groupCategory(group) {
-  for (const occ of group.occurrences) {
-    if (typeof occ.category === "string" && occ.category) return occ.category;
-  }
-  return null;
-}
-
-// A group's description: the first non-null `description` among its
-// occurrences — the catalog's one-liner per skill.
-export function groupDescription(occurrences) {
+// The first non-empty string value of `key` among the occurrences (scan
+// order). Used for the two per-group frontmatter signals the catalog shows —
+// category and description; occurrences of one skill rarely disagree, and when
+// they do, the first scanned wins.
+function firstStringValue(occurrences, key) {
   for (const occ of occurrences) {
-    if (typeof occ.description === "string" && occ.description) return occ.description;
+    const v = occ?.[key];
+    if (typeof v === "string" && v) return v;
   }
   return null;
+}
+
+// A group's category (null → the catalog's Uncategorized bucket).
+function groupCategory(group) {
+  return firstStringValue(group.occurrences, "category");
+}
+
+// A group's description: the catalog's one-liner per skill.
+export function groupDescription(occurrences) {
+  return firstStringValue(occurrences, "description");
 }
 
 // A group's tier badge: External when skills.sh owns any occurrence (lockfile
@@ -207,6 +212,18 @@ function stampCategoryLine(text, category) {
   return ["---", ...fm, ...lines.slice(closeIdx)].join("\n");
 }
 
+// loadConfig with the ENOENT fallback decided by the caller: `assign` treats a
+// missing config as an error (null), the view falls back like `status` does.
+// Any other error still throws.
+async function loadConfigSoft(home, fallback) {
+  try {
+    return await loadConfig(home);
+  } catch (e) {
+    if (e && e.code === "ENOENT") return fallback;
+    throw e;
+  }
+}
+
 async function assignCommand(args, out, err) {
   const [name, category, ...rest] = args;
   const usage = "Try: ninja cat assign <name> <category>";
@@ -228,15 +245,10 @@ async function assignCommand(args, out, err) {
   }
 
   const home = homedir();
-  let config;
-  try {
-    config = await loadConfig(home);
-  } catch (e) {
-    if (e && e.code === "ENOENT") {
-      err.write("No Skill Ninja configuration found. Run `ninja init` first.\n");
-      return 2;
-    }
-    throw e;
+  const config = await loadConfigSoft(home, null);
+  if (!config) {
+    err.write("No Skill Ninja configuration found. Run `ninja init` first.\n");
+    return 2;
   }
   if (!config.store) {
     err.write("No canonical store configured (set `store` in ~/.skill-ninja/config.json).\n");
@@ -320,16 +332,7 @@ export async function catCommand(args) {
 
   // Config feeds the tier badges (the canonical store path). Same fallback as
   // `status` when the config has vanished since init.
-  let config;
-  try {
-    config = await loadConfig(home);
-  } catch (e) {
-    if (e && e.code === "ENOENT") {
-      config = { store: null };
-    } else {
-      throw e;
-    }
-  }
+  const config = await loadConfigSoft(home, { store: null });
 
   out.write(renderCatalog(inventory, config, filter ?? null));
   return 0;
