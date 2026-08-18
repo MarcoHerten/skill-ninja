@@ -23,8 +23,8 @@ import { agentRoot } from "./agents.js";
 import { parseFrontmatter } from "./inventory.js";
 import { scanSafety, renderSafety } from "./safety.js";
 import { extractBody, serializeStamps } from "./hash.js";
-import { renderDiff } from "./diff.js";
-import { renderChangelogFile, firstEntry } from "./changelog.js";
+import { renderDiff, lineDiff, summarizeChanges } from "./diff.js";
+import { renderChangelogFile, appendChangelogEntry, firstEntry, updateEntry } from "./changelog.js";
 import { resolveSkillFromSource } from "./source.js";
 import { linkSkill } from "./links.js";
 import { findComparableSkills, renderComparables } from "./compare.js";
@@ -306,10 +306,14 @@ export async function addCommand(args) {
   // 3.5 CHANGELOG.md (ADR-0012): the human-readable projection of the stamps,
   //     written by the shared changelog writer only — never a plain asset copy
   //     (gatherAssets excludes it). New skill -> header (+ the preserved
-  //     author preamble) + first entry; re-adds are Issue #8's update path.
+  //     author preamble) + first entry. Changed re-add -> append the version
+  //     entry (bootstrapping pre-feature skills with an explicit note —
+  //     nothing retro-fabricated). Identical re-add -> untouched, like the
+  //     version stamp.
+  const changelogFile = join(skillStoreDir, "CHANGELOG.md");
   if (!prior) {
     await writeFile(
-      join(skillStoreDir, "CHANGELOG.md"),
+      changelogFile,
       renderChangelogFile({
         name: resolved.name,
         authorContent: resolved.authorChangelog ?? "",
@@ -323,6 +327,25 @@ export async function addCommand(args) {
           }),
         ],
       }),
+      "utf8",
+    );
+  } else if (contentChanged) {
+    const counts = summarizeChanges(
+      lineDiff(prior.body.split(/\r?\n/), incomingBody.split(/\r?\n/)),
+    );
+    const entry = updateEntry({
+      version,
+      date: today(),
+      counts,
+      priorHash: prior.hash,
+      relation,
+    });
+    const existing = existsSync(changelogFile) ? await readFile(changelogFile, "utf8") : null;
+    await writeFile(
+      changelogFile,
+      existing === null
+        ? renderChangelogFile({ name: resolved.name, bootstrap: true, entries: [entry] })
+        : appendChangelogEntry(existing, entry),
       "utf8",
     );
   }

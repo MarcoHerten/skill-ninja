@@ -207,3 +207,147 @@ test("add writes a changelog for a prompt source", async () => {
     await sb.cleanup();
   }
 });
+
+// --- Issue #8 — `add` update path ----------------------------------------------
+
+// A changed re-add (the PATCH bump) appends a v1.0.1 entry: the distinct
+// change counts (computed independently here from the known bodies), the
+// superseded prior hash in short form, and the carried-forward relation. The
+// first entry stays untouched above it.
+test("add appends a version entry with change counts on a changed re-add", async () => {
+  const sb = await createSandbox();
+  try {
+    const v1body = "# v1 body\n";
+    const v2body = "# v2 body\nsecond line\n";
+    const v1 = await plantSkill(sb.home, "incoming-1/updater", { body: v1body });
+    const v2 = await plantSkill(sb.home, "incoming-2/updater", { body: v2body });
+
+    await runCli(sb.home, ["add", v1.dir, "--relation", "A/B variant of gamma"]);
+    const { stdout, exitCode } = await runCli(sb.home, ["add", v2.dir]);
+    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+
+    const changelog = await readStoredChangelog(sb.home, "updater");
+    // Chronological: the 1.0.0 entry stays above the appended 1.0.1 entry.
+    assert.ok(
+      changelog.indexOf("## 1.0.0") < changelog.indexOf(`## 1.0.1 (${today()})`),
+      `entry order, got:\n${changelog}`,
+    );
+    // Counts from the known bodies: "# v1 body"→"# v2 body" is a change (1),
+    // "second line" an addition (1) — the same counting `diff` reports.
+    assert.ok(
+      changelog.includes("- Content update: 1 line added, 0 lines removed, 1 line changed."),
+      `counts line, got:\n${changelog}`,
+    );
+    assert.ok(
+      changelog.includes(`- Supersedes prior content, hash ${shortHash(sha256(v1body))}.`),
+      `superseded hash, got:\n${changelog}`,
+    );
+    // The relation carries forward into the update entry (the stamped value).
+    assert.ok(
+      changelog.includes('- Relation: "A/B variant of gamma".'),
+      `carried relation, got:\n${changelog}`,
+    );
+    // The first entry's bytes are untouched — append-only.
+    assert.ok(
+      changelog.includes("- Ingested by Skill Ninja from"),
+      `first entry intact, got:\n${changelog}`,
+    );
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// An identical re-add (the version-stamp no-op) leaves the changelog
+// byte-identical.
+test("add leaves the changelog byte-identical on an identical re-add", async () => {
+  const sb = await createSandbox();
+  try {
+    const planted = await plantSkill(sb.home, "incoming/stable", { body: "# Stable\n" });
+    await runCli(sb.home, ["add", planted.dir]);
+    const before = await readStoredChangelog(sb.home, "stable");
+
+    const { stdout, exitCode } = await runCli(sb.home, ["add", planted.dir]);
+    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+    const after = await readStoredChangelog(sb.home, "stable");
+    assert.equal(after, before, `identical re-add must not touch the changelog`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// A skill stored before the changelog feature (no CHANGELOG.md) gets one
+// bootstrapped on its first changed re-add — opened with the explicit note
+// that earlier history lives in the store's git log, and WITHOUT a fabricated
+// entry for the versions before it.
+test("add bootstraps a changelog on the first update of a pre-feature skill", async () => {
+  const sb = await createSandbox();
+  try {
+    const v1 = await plantSkill(sb.home, "incoming-1/legacy", { body: "# Legacy v1\n" });
+    const v2 = await plantSkill(sb.home, "incoming-2/legacy", { body: "# Legacy v2\n" });
+    await runCli(sb.home, ["add", v1.dir]);
+    // Simulate a pre-feature store: the skill is stored, but has no changelog.
+    await rm(join(storePath(sb.home), "legacy", "CHANGELOG.md"));
+
+    const { stdout, exitCode } = await runCli(sb.home, ["add", v2.dir]);
+    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+
+    const changelog = await readStoredChangelog(sb.home, "legacy");
+    assert.match(changelog, /^# Changelog — legacy\n/, `header, got:\n${changelog}`);
+    assert.ok(
+      changelog.includes("earlier history lives in the canonical store's git log"),
+      `bootstrap note, got:\n${changelog}`,
+    );
+    assert.ok(
+      changelog.includes(`## 1.0.1 (${today()})`),
+      `update entry present, got:\n${changelog}`,
+    );
+    // Nothing retro-fabricated: no invented 1.0.0 entry.
+    assert.ok(!changelog.includes("## 1.0.0"), `no fabricated first entry, got:\n${changelog}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// The author preamble (including a maintenance-notes section) survives an
+// append verbatim — the update touches only the tail of the file.
+test("add preserves the author preamble and maintenance notes across the append", async () => {
+  const sb = await createSandbox();
+  try {
+    const v1 = await plantSkill(sb.home, "incoming-1/preserved", { body: "# Preserved v1\n" });
+    await writeFile(
+      join(v1.dir, "CHANGELOG.md"),
+      [
+        "# Changelog — preserved",
+        "",
+        "### Wartungshinweis",
+        "Zeitabhängige Schwellen ab 2027 gegen Primärquellen prüfen.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await runCli(sb.home, ["add", v1.dir]);
+    const before = await readStoredChangelog(sb.home, "preserved");
+
+    const v2 = await plantSkill(sb.home, "incoming-2/preserved", { body: "# Preserved v2\n" });
+    const { stdout, exitCode } = await runCli(sb.home, ["add", v2.dir]);
+    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+
+    const after = await readStoredChangelog(sb.home, "preserved");
+    assert.ok(
+      after.startsWith(before.slice(0, -1)) || after.startsWith(before),
+      `existing content preserved verbatim at the top,\nbefore:\n${before}\nafter:\n${after}`,
+    );
+    assert.ok(
+      after.includes("### Wartungshinweis") &&
+        after.includes("Zeitabhängige Schwellen ab 2027 gegen Primärquellen prüfen."),
+      `maintenance notes survive, got:\n${after}`,
+    );
+    assert.ok(
+      after.includes(`## 1.0.1 (${today()})`),
+      `appended entry, got:\n${after}`,
+    );
+  } finally {
+    await sb.cleanup();
+  }
+});
+
