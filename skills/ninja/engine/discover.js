@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 
 import { discoverAgents } from "./agents.js";
-import { normalizeCategories } from "./config.js";
+import { normalizeCategories, normalizeNameLists } from "./config.js";
 
 const CONFIG_DIR = ".skill-ninja";
 const CONFIG_FILE = "config.json";
@@ -127,5 +127,10 @@ export async function bootstrapConfig(home) {
     // hand-edited list survives re-seeding like `projects` does (normalized by
     // the shared rule in config.js, including an explicitly empty list).
     categories: normalizeCategories(existing.categories),
+    // ADR-0014: profiles and the ZCode-disable ledger are user-only state —
+    // carried forward verbatim-through-normalization on re-seed, never
+    // detected and never dropped.
+    profiles: normalizeNameLists(existing.profiles),
+    zcode_disables: normalizeNameLists(existing.zcode_disables),
   };
 }

@@ -234,6 +234,15 @@ export async function addCommand(args) {
   if (existsSync(storedFile)) {
     const storedText = await readFile(storedFile, "utf8");
     const storedStamps = parseFrontmatter(storedText);
+    // An Off/Manual skill must be switched Active first (ADR-0014): re-stamping
+    // here would silently drop `activation_text` and re-link an Off skill.
+    if (typeof storedStamps.availability === "string" && storedStamps.availability) {
+      err.write(
+        `'${resolved.name}' is currently ${storedStamps.availability}. ` +
+          `Run \`ninja on ${resolved.name}\` first, then re-add — otherwise the switch stamps would be lost.\n`,
+      );
+      return 2;
+    }
     prior = {
       version: storedStamps.version ?? null,
       hash: storedStamps.hash ?? null,

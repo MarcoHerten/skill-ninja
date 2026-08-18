@@ -2,7 +2,7 @@
 // the user's $HOME: ~/.skill-ninja/config.json. Paths in the file may use a
 // leading "~", expanded against $HOME. os.homedir() honours $HOME on POSIX, so
 // tests steer the loader at a fake $HOME simply by setting the env var.
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -47,6 +47,22 @@ export function normalizeCategories(value) {
     : null;
 }
 
+// Normalize a map of name -> string[] (the ADR-0014 data shapes: `profiles`
+// and the `zcode_disables` ledger). Non-array / empty members are dropped;
+// non-string members are filtered. Always returns an object. Exported because
+// `init`'s re-seeding carries both fields forward with the same rule
+// (discover.js — the `categories` precedent).
+export function normalizeNameLists(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out = {};
+  for (const [name, members] of Object.entries(value)) {
+    if (!Array.isArray(members)) continue;
+    const list = members.filter((m) => typeof m === "string" && m.trim() !== "");
+    if (list.length > 0) out[name] = list;
+  }
+  return out;
+}
+
 export function normalizeConfig(parsed, home) {
   const agents = Array.isArray(parsed.agents)
     ? parsed.agents.filter((a) => typeof a === "string")
@@ -64,5 +80,34 @@ export function normalizeConfig(parsed, home) {
     // The category vocabulary for `cat` / `page` (Issue #10). Null = the
     // engine defaults (DEFAULT_CATEGORIES in cat.js) — resolveVocabulary picks.
     categories: normalizeCategories(parsed.categories),
+    // ADR-0014: named skill sets applied per project (`profile apply`), and the
+    // ledger of ZCode-config disable entries Skill Ninja wrote itself (so `on`
+    // removes only its own overrides, never the user's hand-set ones).
+    profiles: normalizeNameLists(parsed.profiles),
+    zcodeDisables: normalizeNameLists(parsed.zcode_disables),
   };
+}
+
+/**
+ * Read the raw config object (every key preserved, no normalization) — the
+ * read side of the write paths that edit one field and must not drop the rest
+ * (`profile save/forget`, the availability ledger). Returns null when the
+ * config file does not exist; a malformed file still throws.
+ */
+export async function readRawConfig(home = homedir()) {
+  try {
+    return JSON.parse(await readFile(configPath(home), "utf8"));
+  } catch (err) {
+    if (err && err.code === "ENOENT") return null;
+    throw err;
+  }
+}
+
+/**
+ * Write the raw config object back to ~/.skill-ninja/config.json (2-space
+ * JSON + trailing newline, the format `init` seeds).
+ */
+export async function writeRawConfig(home, obj) {
+  await mkdir(configDir(home), { recursive: true });
+  await writeFile(configPath(home), JSON.stringify(obj, null, 2) + "\n", "utf8");
 }

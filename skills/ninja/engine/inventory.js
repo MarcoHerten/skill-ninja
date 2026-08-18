@@ -279,6 +279,10 @@ async function describeSkill(skillFile, skillDir, scanRoot, attribution) {
     provenance: frontmatter.provenance ?? null,
     category: frontmatter.category ?? null,
     description: frontmatter.description ?? null,
+    // The Availability stamp (ADR-0014): "manual" | "off" from the stored
+    // copy's frontmatter, null = Active. External occurrences get "off"
+    // overlaid from the ZCode ledger after the scan (see buildInventory).
+    availability: frontmatter.availability ?? null,
     tier: ext ? "external" : null,
     external: ext ? { source: ext.source, computedHash: ext.computedHash } : null,
     hash: bodyHash(text),
@@ -341,6 +345,14 @@ export async function buildInventory(home = homedir()) {
   const globalLock = await readLockfile(join(home, "skills-lock.json"));
 
   const scanRoots = [];
+  // The canonical store is a scan root of its own (schema v4, ADR-0014): an
+  // Off skill is linked nowhere, so without scanning the store it would
+  // vanish from every view and could never be switched back on. Scanned FIRST
+  // so the canonical copy is the group's primary occurrence (its stamps are
+  // the ones the views read).
+  if (config.store) {
+    scanRoots.push({ kind: "store", ref: "store", root: config.store, attribution: {} });
+  }
   for (const key of config.agents) {
     const root = agentRoot(key, home);
     if (!root) continue;
@@ -359,6 +371,14 @@ export async function buildInventory(home = homedir()) {
     await scanRootTree(r, r.root, r.attribution, out);
   }
 
+  // External Off is a ZCode-config disable, not a stamp (ADR-0007 — skills.sh
+  // files are never written); the ledger recorded at disable time is overlaid
+  // onto the occurrence so every view reads one uniform `availability` field.
+  const ledger = config.zcodeDisables ?? {};
+  for (const occ of out.skills) {
+    if (occ.tier === "external" && ledger[occ.name]) occ.availability = "off";
+  }
+
   return finalizeInventory(scanRoots, out);
 }
 
@@ -369,7 +389,7 @@ function finalizeInventory(scanRoots, out) {
     byScanRoot[key] = (byScanRoot[key] ?? 0) + 1;
   }
   return {
-    version: 3,
+    version: 4,
     generatedAt: new Date().toISOString(),
     counts: {
       skills: out.skills.length,

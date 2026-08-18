@@ -69,8 +69,10 @@ function firstStringValue(occurrences, key) {
   return null;
 }
 
-// A group's category (null → the catalog's Uncategorized bucket).
-function groupCategory(group) {
+// A group's category (null → the catalog's Uncategorized bucket). Exported
+// because the availability selectors (`ninja on/off/manual --category`) filter
+// groups by the same rule (ADR-0014).
+export function groupCategory(group) {
   return firstStringValue(group.occurrences, "category");
 }
 
@@ -79,7 +81,8 @@ function groupCategory(group) {
 // last sentence boundary within the limit when one exists, else at the last
 // word, marked with an ellipsis only in the word-cut case (a complete sentence
 // needs no marker). The full text stays in the SKILL.md and on the page.
-function oneLineDescription(description, max = 100) {
+// Exported because `find` prints the same one-liners (ADR-0014).
+export function oneLineDescription(description, max = 100) {
   const text = String(description).replace(/\s+/g, " ").trim();
   if (text.length <= max) return text;
   const head = text.slice(0, max);

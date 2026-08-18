@@ -73,11 +73,18 @@ test("page writes one self-contained HTML file to ~/.skill-ninja/status.html and
     const html = await readPage(sb.home);
     assert.match(html, /^<!DOCTYPE html>/, `expected an HTML document, got:\n${html.slice(0, 200)}`);
     assert.match(html, /<style>/, `expected inline CSS, got:\n${html.slice(0, 200)}`);
-    // Self-contained: no network references, no scripts, no external assets.
+    // Self-contained: no network references, no external assets. Per the
+    // ADR-0011 amendment (ADR-0014) exactly one INLINE script is allowed (the
+    // search/filter cockpit) — and it must not load anything.
     assert.doesNotMatch(html, /https?:\/\//i, `no http(s) references allowed, got:\n${html}`);
-    for (const tag of ["<script", "<link", "<img", "<iframe"]) {
+    for (const tag of ["<link", "<img", "<iframe"]) {
       assert.ok(!html.includes(tag), `a self-contained page must not use ${tag}`);
     }
+    const scripts = [...html.matchAll(/<script\b[^>]*>/g)];
+    assert.equal(scripts.length, 1, `expected exactly one inline script, got ${scripts.length}`);
+    assert.ok(!scripts[0][0].includes("src="), `the inline script must not have a src`);
+    assert.ok(!html.includes("fetch("), `the inline script must not fetch`);
+    assert.ok(!html.includes("XMLHttpRequest"), `the inline script must not request anything`);
   } finally {
     await sb.cleanup();
   }
@@ -228,14 +235,16 @@ test("page renders collapsible skill cards: clamped description in the summary, 
     assert.equal(exitCode, 0);
     const html = await readPage(sb.home);
 
-    // Collapsible card structure — the no-script mechanism (ADR-0011).
-    assert.ok(html.includes('<details class="skill">'), `expected collapsible skill cards`);
+    // Collapsible card structure — expansion is pure HTML (details/summary);
+    // the only script on the page is the cockpit's inline one (ADR-0011
+    // amendment), which lives outside the cards.
+    assert.ok(html.includes('<details class="skill"'), `expected collapsible skill cards`);
     assert.ok(html.includes("<summary>"));
-    assert.ok(!html.includes("<script"));
+    assert.ok(!html.includes("<script src"), `no script may load anything`);
 
     // The summary carries the h3 and the description, clamped by CSS only.
     assert.ok(html.includes("-webkit-line-clamp"), `expected the clamp CSS`);
-    const cardIdx = html.indexOf('<details class="skill">');
+    const cardIdx = html.indexOf('<details class="skill"');
     const card = html.slice(cardIdx, html.indexOf("</details>", cardIdx));
     const summary = card.slice(0, card.indexOf("</summary>"));
     assert.ok(summary.includes("<h3>aphrodite</h3>"), `expected the name inside the summary`);
@@ -325,7 +334,7 @@ test("page escapes skill names and paths (no HTML injection)", async () => {
     const html = await readPage(sb.home);
     assert.ok(html.includes("a&lt;b&gt;c&amp;d"), `expected the escaped name`);
     assert.ok(!html.includes("a<b>c&d"), `the raw name must never appear as markup`);
-    assert.ok(!html.includes("<script"), `no script element may be injectable`);
+    assert.ok(!html.includes("<script src"), `no script element may be injectable`);
   } finally {
     await sb.cleanup();
   }

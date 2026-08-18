@@ -188,12 +188,16 @@ export async function plantDuplicate(home, name, dirRels, { body = "# A skill\n"
  *
  * @param {string} home The fake $HOME to run inside.
  * @param {string[]} [args] CLI args (e.g. `["config", "show"]`).
+ * @param {object} [opts]
+ * @param {string} [opts.cwd] Working directory for the child (the `profile
+ *   apply|lift` commands act on `<cwd>/.agents/skills`).
  * @returns {Promise<{stdout: string, stderr: string, exitCode: number | null}>}
  */
-export function runCli(home, args = []) {
+export function runCli(home, args = [], opts = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [ENGINE_PATH, ...args], {
       env: { ...process.env, HOME: home, USER: "test" },
+      cwd: opts.cwd,
     });
     let stdout = "";
     let stderr = "";

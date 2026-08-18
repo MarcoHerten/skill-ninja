@@ -18,6 +18,9 @@ import { addCommand } from "./add.js";
 import { diffCommand } from "./diff.js";
 import { doctorCommand } from "./doctor.js";
 import { ingestCommand } from "./ingest.js";
+import { availabilityCommand } from "./availability.js";
+import { findCommand } from "./find.js";
+import { profileCommand } from "./profile.js";
 
 // The full command surface the skill exposes. Every command is wired to a
 // handler; COMMANDS also drives `help` so the CLI and SKILL.md agree on the
@@ -32,6 +35,11 @@ const COMMANDS = {
   add: "Ingest a new skill safely, with provenance recorded.",
   diff: "Show what changed in a skill since the stored version.",
   ingest: "Analyze a directory of skills/prompts: classify, cluster, propose winners (--apply stores them in one commit).",
+  on: "Switch skills Active: link into agent roots (dry run; --apply executes).",
+  off: "Switch skills Off: unload everywhere (dry run; --apply executes).",
+  manual: "Switch skills Manual: invocable by name, never auto-triggered (dry run; --apply executes).",
+  find: "Search the cached inventory by skill name, description, or category.",
+  profile: "Manage skill profiles: list | save | forget | apply | lift.",
   config: "Show Skill Ninja's configuration (try: config show).",
 };
 
@@ -237,6 +245,15 @@ async function dispatch(argv) {
   }
   if (command === "ingest") {
     return ingestCommand(rest);
+  }
+  if (command === "on" || command === "off" || command === "manual") {
+    return availabilityCommand(command, rest);
+  }
+  if (command === "find") {
+    return findCommand(rest);
+  }
+  if (command === "profile") {
+    return profileCommand(rest);
   }
   if (command in COMMANDS) {
     // Known command not yet wired in this build.

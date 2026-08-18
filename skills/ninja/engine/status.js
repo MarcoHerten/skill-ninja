@@ -44,6 +44,7 @@ export function scanRootLabel(scanRoot) {
   if (scanRoot.kind === "agent") return AGENT_LABELS[scanRoot.ref] ?? `${scanRoot.ref} root`;
   if (scanRoot.kind === "vault") return `vault ${scanRoot.ref}`;
   if (scanRoot.kind === "project") return `project ${scanRoot.ref}`;
+  if (scanRoot.kind === "store") return "canonical store";
   return `${scanRoot.kind} ${scanRoot.ref}`;
 }
 
@@ -153,6 +154,32 @@ export function plural(n, word) {
   return `${n} ${n === 1 ? word : word + "s"}`;
 }
 
+// A group's Availability (ADR-0014), computed from the same occurrence data
+// every view shares. Off wins over Manual (an off skill is linked nowhere, so
+// only its store occurrence — carrying the stamp — remains); a group with any
+// occurrence outside the store is otherwise live somewhere ("active"); a group
+// that exists ONLY in the store was stored but never linked (`ingest` output,
+// or a stored skill whose links were removed without an off stamp) — "stored".
+// External occurrences carry `availability: "off"` overlaid from the ZCode
+// ledger at inventory-build time, so the rule reads one field uniformly.
+// Exported for `page`, `find`, and the availability commands — one home.
+export function groupAvailability(group) {
+  const occs = group.occurrences ?? [];
+  if (occs.some((o) => o.availability === "off")) return "off";
+  if (occs.some((o) => o.availability === "manual")) return "manual";
+  if (occs.some((o) => o.scanRoot?.kind !== "store")) return "active";
+  return "stored";
+}
+
+// The status-line tag for a non-active Availability; active is the untagged
+// default (the tag list must stay quiet for the common case).
+export function availabilityTag(state) {
+  if (state === "manual") return "[manual]";
+  if (state === "off") return "[off]";
+  if (state === "stored") return "[stored — not linked]";
+  return "";
+}
+
 /**
  * Render the cached inventory as a unified, readable status report.
  *
@@ -198,6 +225,10 @@ export function renderStatus(inventory, config, flags) {
     (g) => (g.duplicate && !g.linkedSpread) || g.hashDuplicate,
   ).length;
   const locCount = shownGroups.reduce((n, g) => n + g.occurrences.length, 0);
+  // Availability totals (ADR-0014) — appended only when non-zero so the
+  // classic summary line stays byte-identical on an all-active landscape.
+  const manualCount = shownGroups.filter((g) => groupAvailability(g) === "manual").length;
+  const offCount = shownGroups.filter((g) => groupAvailability(g) === "off").length;
 
   const lines = ["Skill Ninja status"];
   if (inventory.generatedAt) lines.push(`(inventory from ${inventory.generatedAt})`);
@@ -208,11 +239,13 @@ export function renderStatus(inventory, config, flags) {
   if (flags.personal) active.push("--personal");
   if (active.length) lines.push(`(filtering: ${active.join(" ")})`);
 
-  lines.push(
-    "",
+  let summary =
     `${plural(shownGroups.length, "skill")} across ${plural(locCount, "location")}, ` +
-      `${plural(dupCount, "duplicated skill")}, ${plural(broken.length, "broken symlink")}.`,
-  );
+    `${plural(dupCount, "duplicated skill")}, ${plural(broken.length, "broken symlink")}.`;
+  if (manualCount > 0 || offCount > 0) {
+    summary += ` ${plural(manualCount, "manual skill")}, ${plural(offCount, "off skill")}.`;
+  }
+  lines.push("", summary);
 
   if (showSkills) {
     lines.push("", "Skills:");
@@ -221,6 +254,8 @@ export function renderStatus(inventory, config, flags) {
     } else {
       for (const g of groups) {
         const tags = [];
+        const availTag = availabilityTag(groupAvailability(g));
+        if (availTag) tags.push(availTag);
         if (g.linkedSpread) tags.push("[linked spread]");
         else if (g.duplicate) tags.push("[duplicate]");
         if (g.hashDuplicate) tags.push("[duplicate — same content, other name]");
