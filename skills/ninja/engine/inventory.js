@@ -266,9 +266,10 @@ async function readLockfile(path) {
  * symlinks recorded distinctly. Never throws on a malformed SKILL.md.
  *
  * Attribution: the global skills.sh lockfile (`~/skills-lock.json`) covers every
- * agent root; a per-root lockfile (`<root>/skills-lock.json`) covers vault /
- * project roots. Occurrences named in a lockfile are tagged External.
- * (ADR-0007/0008.)
+ * agent root; a per-root lockfile (`<root>/skills-lock.json`) covers that root
+ * (agent roots merge it over the global one with per-root precedence; vault /
+ * project roots read it alone). Occurrences named in a lockfile are tagged
+ * External. (ADR-0007/0008.)
  *
  * @param {string} [home] $HOME to resolve from.
  * @returns {Promise<object>} The inventory object (ADR-0003 schema).
@@ -276,13 +277,17 @@ async function readLockfile(path) {
 export async function buildInventory(home = homedir()) {
   const config = await loadConfig(home);
 
-  // The global lockfile applies to every agent root.
+  // The global lockfile applies to every agent root; an agent root may also
+  // carry its own lockfile (skills.sh writes skills-lock.json per install
+  // scope), whose entries take precedence for that root.
   const globalLock = await readLockfile(join(home, "skills-lock.json"));
 
   const scanRoots = [];
   for (const key of config.agents) {
     const root = agentRoot(key, home);
-    if (root) scanRoots.push({ kind: "agent", ref: key, root, attribution: globalLock });
+    if (!root) continue;
+    const rootLock = await readLockfile(join(root, "skills-lock.json"));
+    scanRoots.push({ kind: "agent", ref: key, root, attribution: { ...globalLock, ...rootLock } });
   }
   for (const p of config.vaults) {
     scanRoots.push({ kind: "vault", ref: p, root: p, attribution: await readLockfile(join(p, "skills-lock.json")) });

@@ -71,6 +71,64 @@ test("init tags skills.sh-installed skills External via the global skills-lock.j
   }
 });
 
+// An agent root may carry its OWN skills-lock.json (skills.sh writes the file
+// per install scope). Its entries are merged over the global lockfile for that
+// root — per-root precedence — so a skill the global lockfile doesn't know is
+// still attributed External.
+test("init attributes agent-root skills via a per-root skills-lock.json, overriding the global one", async () => {
+  const sb = await createSandbox();
+  try {
+    // Global lockfile knows only the clerk skill.
+    await writeFile(
+      join(sb.home, "skills-lock.json"),
+      JSON.stringify({
+        version: 1,
+        skills: {
+          clerk: { source: "clerk/skills", sourceType: "github", computedHash: "aaaa" },
+        },
+      }),
+      "utf8",
+    );
+    // The Claude root's own lockfile knows two more — including a different
+    // source for `clerk`, which must win for that root.
+    await writeFile(
+      join(sb.home, ".claude", "skills", "skills-lock.json"),
+      JSON.stringify({
+        version: 1,
+        skills: {
+          "root-lock-skill": { source: "org/other-repo", sourceType: "github", computedHash: "bbbb" },
+          clerk: { source: "clerk/skills-fork", sourceType: "github", computedHash: "cccc" },
+        },
+      }),
+      "utf8",
+    );
+    await plantSkill(sb.home, ".claude/skills/clerk");
+    await plantSkill(sb.home, ".claude/skills/root-lock-skill");
+    // Same name in the ZCode root: only the GLOBAL lockfile applies there.
+    await plantSkill(sb.home, ".zcode/skills/clerk");
+
+    const { exitCode } = await runCli(sb.home, ["init"]);
+    assert.equal(exitCode, 0);
+
+    const cache = await readInventory(sb.home);
+    const byNameAndRoot = new Map(
+      cache.skills.map((s) => [`${s.name}@${s.scanRoot.ref}`, s]),
+    );
+    assert.equal(
+      byNameAndRoot.get("root-lock-skill@claude")?.tier,
+      "external",
+      `expected the per-root-only skill to be attributed External, got:\n${JSON.stringify(cache.skills)}`,
+    );
+    assert.equal(byNameAndRoot.get("root-lock-skill@claude")?.external?.source, "org/other-repo");
+    // Per-root precedence in the Claude root …
+    assert.equal(byNameAndRoot.get("clerk@claude")?.external?.source, "clerk/skills-fork");
+    // … while the ZCode root still resolves through the global lockfile.
+    assert.equal(byNameAndRoot.get("clerk@zcode")?.external?.source, "clerk/skills");
+  } finally {
+    await sb.cleanup();
+  }
+});
+
 // A project scan root with its own skills-lock.json attributes the skills it owns
 // (project-scoped lockfile, not the global one).
 test("init attributes project-root skills via a per-root skills-lock.json", async () => {
