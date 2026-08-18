@@ -5,9 +5,11 @@
 //
 // The inventory is one entry per physical occurrence; `status` groups occurrences
 // by name to present each logical Skill once, with all its location(s). A Skill
-// with more than one location is a duplicate (CONTEXT.md: "the same skill in
-// multiple places" — the visible symptom of tool asymmetry). Broken symlinks are
-// listed distinctly. Version / provenance are shown where known.
+// with more than one location is flagged — `[duplicate]` when independent copies
+// exist, `[linked spread]` when every location resolves to one canonical copy
+// (symlink awareness, inventory schema v2: `add`'s store links and skills.sh's
+// install pattern alike). Symlink locations show `→ <resolved target>`. Broken
+// symlinks are listed distinctly. Version / provenance are shown where known.
 //
 // Filters narrow the view. (Issue #4; CONTEXT.md: Skill, Provenance, Agent root,
 // Tool asymmetry; the tiers.)
@@ -86,12 +88,32 @@ function versionLine(occ) {
   return line;
 }
 
+// A linked spread (inventory schema v2): a multi-location group that resolves
+// to ONE canonical copy — at most one real (non-symlink) occurrence, and every
+// symlink occurrence resolves to that same directory. This covers both healthy
+// shapes: `add`'s links into the canonical store and skills.sh's install
+// pattern (one real dir in an agent root, the other roots symlinked into it).
+// A linked spread is tool asymmetry correctly handled, NOT a duplicate; only a
+// spread with more than one independent copy is a duplicate. (CONTEXT.md
+// "Duplicate"; the same rule drives `doctor`'s duplicate detection.)
+function isLinkedSpread(occurrences) {
+  if (occurrences.length < 2) return false;
+  const real = occurrences.filter((o) => !o.symlink);
+  const links = occurrences.filter((o) => o.symlink);
+  if (real.length > 1 || links.length === 0) return false;
+  const target = links[0].resolved;
+  if (!links.every((o) => o.resolved === target)) return false;
+  return real.length === 0 || real[0].resolved === target;
+}
+
 // Group per-occurrence entries by name -> { name, occurrences, duplicate,
-// hashDuplicate }. A group is a name-duplicate when the same name lives in more
-// than one location (the primary identity signal). It is a content-duplicate
-// (hashDuplicate) when any of its occurrences shares a content hash with an
-// occurrence under a DIFFERENT name — the secondary signal that catches the same
-// skill living under a different name (CONTEXT.md "Duplicate").
+// linkedSpread, hashDuplicate }. A group is a name-duplicate when the same name
+// lives in more than one location (the primary identity signal) — unless the
+// spread is linked (one canonical copy + links into it, the healthy state). It
+// is a content-duplicate (hashDuplicate) when any of its occurrences shares a
+// content hash with an occurrence under a DIFFERENT name — the secondary signal
+// that catches the same skill living under a different name (CONTEXT.md
+// "Duplicate").
 function groupSkills(skills) {
   const map = new Map();
   for (const occ of skills) {
@@ -114,6 +136,7 @@ function groupSkills(skills) {
       name,
       occurrences,
       duplicate: occurrences.length > 1,
+      linkedSpread: isLinkedSpread(occurrences),
       hashDuplicate,
     });
   }
@@ -151,7 +174,11 @@ export function renderStatus(inventory, config, flags) {
   let groups = allGroups;
   if (skillFilterActive) {
     groups = allGroups.filter((g) => {
-      if (flags.duplicates && !g.duplicate && !g.hashDuplicate) return false;
+      // A problem duplicate: a multi-location spread that is NOT a healthy
+      // linked spread, or the same content under another name.
+      const problemDuplicate =
+        (g.duplicate && !g.linkedSpread) || g.hashDuplicate;
+      if (flags.duplicates && !problemDuplicate) return false;
       if (flags.personal && !g.occurrences.some((o) => isPersonal(o, store))) return false;
       return true;
     });
@@ -161,7 +188,9 @@ export function renderStatus(inventory, config, flags) {
   // (--broken alone), they contribute zero to the counts.
   const shownGroups = showSkills ? groups : [];
 
-  const dupCount = shownGroups.filter((g) => g.duplicate || g.hashDuplicate).length;
+  const dupCount = shownGroups.filter(
+    (g) => (g.duplicate && !g.linkedSpread) || g.hashDuplicate,
+  ).length;
   const locCount = shownGroups.reduce((n, g) => n + g.occurrences.length, 0);
 
   const lines = ["Skill Ninja status"];
@@ -185,14 +214,14 @@ export function renderStatus(inventory, config, flags) {
       lines.push("  (none)");
     } else {
       for (const g of groups) {
-        const tag = g.duplicate
-          ? " [duplicate]"
-          : g.hashDuplicate
-            ? " [duplicate — same content, other name]"
-            : "";
-        lines.push(`  ${g.name}${tag}`);
+        const tags = [];
+        if (g.linkedSpread) tags.push("[linked spread]");
+        else if (g.duplicate) tags.push("[duplicate]");
+        if (g.hashDuplicate) tags.push("[duplicate — same content, other name]");
+        lines.push(`  ${g.name}${tags.length ? " " + tags.join(" ") : ""}`);
         for (const occ of g.occurrences) {
-          lines.push(`    ${scanRootLabel(occ.scanRoot)} - ${occ.dir}`);
+          const link = occ.symlink && occ.resolved ? ` → ${occ.resolved}` : "";
+          lines.push(`    ${scanRootLabel(occ.scanRoot)} - ${occ.dir}${link}`);
           lines.push(`      ${versionLine(occ)}  |  provenance: ${provenanceSummary(occ)}`);
         }
       }

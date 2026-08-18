@@ -8,7 +8,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { lstat, readlink, readFile, symlink } from "node:fs/promises";
+import { lstat, readlink, readFile, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -250,6 +250,98 @@ test("doctor rejects an invalid --only value", async () => {
     const { stderr, exitCode } = await runCli(sb.home, ["doctor", "--only", "bogus"]);
     assert.equal(exitCode, 2);
     assert.match(stderr, /--only must be broken, duplicates, or orphans/);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice H — the skills.sh install pattern: one real canonical dir in an agent
+// root, the other roots symlinked into it. All occurrences resolve to ONE
+// content location, so this is a healthy linked spread, not a duplicate —
+// doctor must neither flag it nor, on --apply, replace skills.sh's canonical
+// directory with a store symlink (the bug: doctor used to "consolidate" the
+// install skills.sh owns).
+test("doctor does not flag or touch a skills.sh-style canonical spread (real dir + links into it)", async () => {
+  const sb = await createSandbox({
+    config: {
+      store: "~/.skill-ninja/store",
+      agents: ["claude", "agents"],
+      vaults: [],
+      projects: [],
+    },
+  });
+  try {
+    const real = await plantSkill(sb.home, ".agents/skills/installed", {
+      frontmatter: { name: "installed" },
+    });
+    const link = join(sb.home, ".claude/skills/installed");
+    await symlink(real.dir, link);
+    await runCli(sb.home, ["init"]);
+
+    const { stdout, exitCode } = await runCli(sb.home, ["doctor"]);
+    assert.equal(exitCode, 0, `expected exit 0, stderr:\n${stdout}`);
+    assert.match(stdout, /No problems detected/i, `expected a healthy landscape, got:\n${stdout}`);
+    assert.doesNotMatch(stdout, /duplicate/i, `a linked spread must not be flagged, got:\n${stdout}`);
+    assert.doesNotMatch(stdout, /orphan/i, `a linked spread must not be an orphan, got:\n${stdout}`);
+
+    // --apply must leave the skills.sh layout exactly as installed: the real
+    // canonical dir stays a real dir, the agent-root symlink stays a symlink,
+    // and nothing is copied into the store.
+    const applied = await runCli(sb.home, ["doctor", "--apply"]);
+    assert.equal(applied.exitCode, 0, `expected exit 0, stderr:\n${applied.stdout}`);
+    assert.ok(await isRealDir(real.dir), "skills.sh's canonical dir must stay a real directory");
+    assert.ok(await isSymlink(link), "the agent-root symlink must stay a symlink");
+    assert.ok(
+      !existsSync(join(storePath(sb.home), "installed")),
+      "nothing may be copied into the canonical store",
+    );
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice I — skills.sh-owned (External, lockfile-attributed) skills are audited,
+// never re-linked (ADR-0007): doctor proposes no dedup and no orphan repair for
+// them, even when they look like loose copies.
+test("doctor proposes no repairs for skills.sh-owned (External) skills", async () => {
+  const sb = await createSandbox();
+  try {
+    // skills.sh's global lockfile attributes both skills (engine reads
+    // ~/skills-lock.json for agent roots — ADR-0007/0008).
+    const lock = {
+      version: 1,
+      skills: {
+        "ext-dup": { source: "friend/repo", sourceType: "github", computedHash: "aa" },
+        "ext-solo": { source: "friend/repo", sourceType: "github", computedHash: "bb" },
+      },
+    };
+    await writeFile(join(sb.home, "skills-lock.json"), JSON.stringify(lock, null, 2) + "\n");
+
+    // A loose two-location spread AND a solo loose copy — both External-owned.
+    const dup = await plantDuplicate(sb.home, "ext-dup", [
+      ".claude/skills/ext-dup",
+      ".zcode/skills/ext-dup",
+    ]);
+    const solo = await plantSkill(sb.home, ".claude/skills/ext-solo", {
+      frontmatter: { name: "ext-solo" },
+    });
+    await runCli(sb.home, ["init"]);
+
+    const { stdout, exitCode } = await runCli(sb.home, ["doctor"]);
+    assert.equal(exitCode, 0, `expected exit 0, stderr:\n${stdout}`);
+    assert.match(stdout, /No problems detected/i, `External skills must not be flagged, got:\n${stdout}`);
+    assert.doesNotMatch(stdout, /ext-dup/, `no duplicate finding for External skills, got:\n${stdout}`);
+    assert.doesNotMatch(stdout, /ext-solo/, `no orphan finding for External skills, got:\n${stdout}`);
+
+    // Even --apply changes nothing for External-owned locations.
+    const applied = await runCli(sb.home, ["doctor", "--apply"]);
+    assert.equal(applied.exitCode, 0, `expected exit 0, stderr:\n${applied.stdout}`);
+    for (const d of dup) {
+      assert.ok(await isRealDir(d.dir), `${d.dir} must stay a real directory`);
+    }
+    assert.ok(await isRealDir(solo.dir), "the External solo copy must stay a real directory");
+    assert.ok(!existsSync(join(storePath(sb.home), "ext-dup")), "store must not receive ext-dup");
+    assert.ok(!existsSync(join(storePath(sb.home), "ext-solo")), "store must not receive ext-solo");
   } finally {
     await sb.cleanup();
   }

@@ -14,7 +14,7 @@
 // Vocabulary: each discovered location is a "scan root" (CONTEXT.md). In an
 // earlier draft this was named `scope`; the rename is complete in code + schema.
 
-import { readdir, stat, mkdir, writeFile, readFile } from "node:fs/promises";
+import { readdir, stat, lstat, realpath, mkdir, writeFile, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
 
@@ -181,6 +181,13 @@ async function scanRootTree(scanRoot, rootPath, attribution, out) {
 // under a different name). `attribution` carries skills.sh lockfile data
 // (ADR-0007/0008): when the skill name is recorded in a lockfile, the occurrence
 // is tagged External. The stored scanRoot is kept lean (no attribution payload).
+//
+// Symlink awareness (schema v2): each occurrence records whether its directory
+// is a symlink and its resolved (realpath) location. This is what lets `status`
+// tell a healthy linked spread — one canonical copy plus links into it, whether
+// those links point into the store (`add`) or into one of the agent roots
+// (skills.sh's install pattern) — apart from a loose-copy duplicate, and lets
+// `doctor` count independent content copies.
 async function describeSkill(skillFile, skillDir, scanRoot, attribution) {
   let frontmatter = {};
   let text = "";
@@ -191,12 +198,25 @@ async function describeSkill(skillFile, skillDir, scanRoot, attribution) {
     frontmatter = {};
   }
 
+  let symlink = false;
+  let resolved = skillDir;
+  try {
+    symlink = (await lstat(skillDir)).isSymbolicLink();
+    resolved = await realpath(skillDir);
+  } catch {
+    // Unresolvable (should not happen for a discovered skill) — fall back to
+    // the walked path; consumers compare resolved paths within one scan, so a
+    // consistent fallback never produces a false healthy/duplicate verdict.
+  }
+
   const name = (typeof frontmatter.name === "string" && frontmatter.name) || basename(skillDir);
   const ext = attribution && attribution[name];
   return {
     name,
     file: skillFile,
     dir: skillDir,
+    resolved,
+    symlink,
     scanRoot: { kind: scanRoot.kind, ref: scanRoot.ref, root: scanRoot.root },
     version: frontmatter.version ?? null,
     updated: frontmatter.updated ?? null,
@@ -286,7 +306,7 @@ function finalizeInventory(scanRoots, out) {
     byScanRoot[key] = (byScanRoot[key] ?? 0) + 1;
   }
   return {
-    version: 1,
+    version: 2,
     generatedAt: new Date().toISOString(),
     counts: {
       skills: out.skills.length,

@@ -62,22 +62,24 @@ walk already enumerates entries); brokenness is detected by following the link
 
 ```jsonc
 {
-  "version": 1,                              // inventory schema version
+  "version": 2,                              // inventory schema version
   "generatedAt": "2026-08-13T12:00:00.000Z", // ISO timestamp of this scan
   "counts": {
     "skills": 3,                             // total skill occurrences
     "broken": 1,                             // total broken symlinks
-    "byScope": { "agent:claude": 2, "vault:/abs/vault": 1 }
+    "byScanRoot": { "agent:claude": 2, "vault:/abs/vault": 1 }
   },
   "skills": [
     {
       "name": "skill-ninja",                 // frontmatter name, else dir basename
       "file": "/abs/.../SKILL.md",           // absolute path to the SKILL.md
       "dir":  "/abs/.../<skill-name>",       // absolute dir containing SKILL.md
-      "scope": {
+      "resolved": "/abs/.../<skill-name>",   // realpath of dir (v2; symlinks resolved)
+      "symlink": false,                      // v2: is this occurrence's dir a symlink?
+      "scanRoot": {
         "kind": "agent",                     // "agent" | "vault" | "project"
         "ref":  "claude",                    // agent key, or abs path for vault/project
-        "root": "/abs/.claude/skills"        // the scope's scan root (absolute)
+        "root": "/abs/.claude/skills"        // the scan root (absolute)
       },
       "version":    "1.2.0",                 // parsed from frontmatter, else null
       "updated":    "2026-07-01",            // parsed from frontmatter, else null
@@ -86,13 +88,16 @@ walk already enumerates entries); brokenness is detected by following the link
         "from": "Marco",
         "imported": "2026-06-01",
         "derived_from": null
-      }
+      },
+      "tier":  "external",                   // "external" when skills.sh-attributed, else null
+      "external": { "source": "friend/repo", "computedHash": "…" },
+      "hash":  "ab12cd34…"                   // body content hash (ADR-0005)
     }
   ],
   "broken": [
     {
       "path":  "/abs/.../dangling-skill",    // absolute path of the broken symlink
-      "scope": { "kind": "agent", "ref": "claude", "root": "/abs/.claude/skills" }
+      "scanRoot": { "kind": "agent", "ref": "claude", "root": "/abs/.claude/skills" }
     }
   ]
 }
@@ -103,6 +108,15 @@ location), not grouped by name. A skill present in several roots (tool
 asymmetry) or duplicated therefore appears once per location; `status` groups by
 `name` to surface duplicates and tool-asymmetry spread. Per-occurrence entries
 preserve per-location `version` / `provenance` (two copies of a skill can differ).
+
+**Schema v2** added per-occurrence symlink awareness: `symlink` (is the
+occurrence's directory a symlink?) and `resolved` (its `realpath`). This is what
+lets `status` tell a **healthy linked spread** — every occurrence resolves to one
+canonical copy, whether the links point into the canonical store (`add`) or into
+one of the agent roots (skills.sh's install pattern) — apart from a loose-copy
+duplicate, without re-scanning the filesystem. Consumers comparing locations
+against each other compare `resolved` paths (the walked `dir` may contain
+symlinked ancestors).
 
 ### Frontmatter parsing
 

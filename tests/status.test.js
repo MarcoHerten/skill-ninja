@@ -11,6 +11,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { realpath, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { createSandbox, runCli, plantSkill, plantBrokenSymlink } from "./helpers/harness.js";
 
@@ -83,6 +84,60 @@ test("status flags a skill present in multiple roots as a duplicate with each lo
     const onlyLine = stdout.split("\n").find((l) => l.includes("only-here"));
     assert.ok(onlyLine, `expected an only-here line, got:\n${stdout}`);
     assert.doesNotMatch(onlyLine, /\[duplicate\]/, `unique skill must not be flagged, got:\n${stdout}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Slice B2 — a linked spread: one real canonical copy plus symlinks into it
+// (skills.sh's install pattern; `add`'s store links look the same from the
+// roots). It is shown as [linked spread] with each symlink's resolved target
+// and is NOT flagged, counted, or filtered as a duplicate — tool asymmetry
+// correctly handled is the healthy state, not a problem.
+test("status shows a linked spread as [linked spread], not a duplicate", async () => {
+  const sb = await createSandbox({
+    config: {
+      store: "~/.skill-ninja/store",
+      agents: ["claude", "agents"],
+      vaults: [],
+      projects: [],
+    },
+  });
+  try {
+    // skills.sh pattern: real dir in the agents root, symlinked into Claude.
+    const real = await plantSkill(sb.home, ".agents/skills/installed", {
+      frontmatter: { name: "installed" },
+    });
+    await symlink(real.dir, join(sb.home, ".claude/skills/installed"));
+    // A genuine two-copy duplicate for contrast (real dirs in both roots).
+    await plantSkill(sb.home, ".claude/skills/shared");
+    await plantSkill(sb.home, ".agents/skills/shared");
+
+    const { stdout, exitCode } = await seedAndStatus(sb);
+
+    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+
+    // The linked spread is tagged [linked spread], never [duplicate].
+    const installedLine = stdout.split("\n").find((l) => l.trim().startsWith("installed"));
+    assert.ok(installedLine, `expected an installed line, got:\n${stdout}`);
+    assert.match(installedLine, /\[linked spread\]/, `expected the linked-spread tag, got:\n${stdout}`);
+    assert.doesNotMatch(installedLine, /\[duplicate\]/, `a linked spread is not a duplicate, got:\n${stdout}`);
+
+    // The symlink location shows its resolved target.
+    const resolved = await realpath(real.dir);
+    const linkLine = stdout.split("\n").find((l) => l.includes(join(".claude", "skills", "installed")));
+    assert.ok(linkLine, `expected the symlink location line, got:\n${stdout}`);
+    assert.ok(linkLine.includes(`→ ${resolved}`), `expected '→ <resolved target>', got:\n${linkLine}`);
+
+    // The genuine duplicate is still flagged, and the header counts only it.
+    const sharedLine = stdout.split("\n").find((l) => l.trim().startsWith("shared"));
+    assert.match(sharedLine, /\[duplicate\]/, `expected the loose duplicate to be flagged, got:\n${stdout}`);
+    assert.match(stdout, /1 duplicated skill/, `only the loose copy counts as duplicated, got:\n${stdout}`);
+
+    // --duplicates shows the problem, not the healthy linked spread.
+    const { stdout: filtered } = await seedAndStatus(sb, ["--duplicates"]);
+    assert.ok(filtered.includes("shared"), `the duplicate must show under --duplicates, got:\n${filtered}`);
+    assert.ok(!filtered.includes("installed"), `a linked spread must be excluded from --duplicates, got:\n${filtered}`);
   } finally {
     await sb.cleanup();
   }

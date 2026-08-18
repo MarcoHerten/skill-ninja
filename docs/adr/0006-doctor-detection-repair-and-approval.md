@@ -39,20 +39,33 @@ not exist (recorded by `init` with its path and scope).
 
 **Duplicate** — a name that appears in **more than one** inventory occurrence
 (the visible symptom of **tool asymmetry**: the same **Skill** spread across
-roots). *But* a spread is only a **problem** when **at least one occurrence is a
-loose copy**. To tell a problematic duplicate from a healthy link spread, `doctor`
-**classifies** each occurrence against the filesystem (read-only `lstat`/
-`readlink`):
+roots). *But* a spread is only a **problem** when its occurrences resolve to
+**two or more independent content locations**. `doctor` classifies each
+occurrence against the filesystem (read-only `lstat`/`realpath`) and compares the
+occurrences' **resolved** locations:
 
 - **store** — the occurrence's directory lives under `config.store` (the canonical
   copy).
-- **link** — the directory is a symlink (a healthy link; tool asymmetry correctly
-  handled by `add`/dedup).
+- **link** — the directory is a symlink; its resolved location is the directory
+  it points at.
 - **loose** — a real directory, not under the store, not a symlink (a standalone
   copy the user never canonically ingested).
 
-A spread with **no loose occurrence** is the healthy post-`add`/post-dedup state
-and is **not** reported. A spread with ≥1 loose occurrence is a duplicate problem.
+A spread whose occurrences all resolve to **one** location is the healthy state
+and is **not** reported. This covers both healthy shapes: all symlinks into the
+canonical store (the post-`add`/post-dedup state) *and* one real canonical
+directory with the other locations symlinked into it (**skills.sh's install
+pattern** — its canonical copy sits in an agent root, e.g.
+`~/.agents/skills/<name>`, with the other roots linked to it). A spread is a
+duplicate problem only when ≥2 independent content copies exist.
+
+**External guard** — occurrences attributed to skills.sh via its lockfile
+(`tier: "external"`, ADR-0007) are **never** proposed for consolidation or
+orphan repair, regardless of their filesystem shape: skills.sh owns those
+installs; Skill Ninja audits but does not re-link them. (Lockfile attribution is
+best-effort — global skills.sh installs may carry no lockfile — which is why the
+structural resolved-location rule above is the primary defense: it keeps
+doctor's hands off the canonical-spread pattern even when it is unattributed.)
 
 **Orphan** — a **solo** occurrence (its name appears exactly once) that classifies
 as **loose**: a real copy floating in an **agent root** or **vault**, never
@@ -105,9 +118,13 @@ story #21).
 - **Detection from the cache** keeps `doctor` consistent with `status` (both
   compute on demand from the inventory — SPEC.md, "No anti-patterns": no manual
   catalog).
-- **Filesystem classification** is what distinguishes a *problem* (loose copies)
-  from the healthy linked spread `add`/dedup produce. Without it, every tool-
-  asymmetry link spread would false-positive as a "duplicate".
+- **Filesystem classification** is what distinguishes a *problem* (independent
+  copies) from the healthy linked spreads `add`/dedup *and skills.sh* produce.
+  Counting resolved (`realpath`) locations — not loose-copy presence — is what
+  keeps doctor from "consolidating" skills.sh's canonical install directory,
+  which only ever appears loose from the store's perspective. Without this,
+  every tool-asymmetry link spread would false-positive as a "duplicate" —
+  including Skill Ninja's own installation, on every fresh machine.
 - **`--apply` as the approval gate** makes "no silent changes" testable and
   deterministic, while leaving per-fix approval to the skill layer.
 - **Consolidation to one canonical copy + links** is the documented fix for tool

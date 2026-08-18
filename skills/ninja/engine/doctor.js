@@ -15,8 +15,16 @@
 // Repairs reuse `add`'s linking pattern (`engine/links.js#linkSkill`): one
 // canonical copy in the **canonical store**, linked everywhere — resolving
 // **tool asymmetry** (CONTEXT.md). (SPEC.md: "no multi-target deploy".)
+//
+// Healthy-spread rule: a name spread is a duplicate problem only when its
+// occurrences resolve to ≥2 independent content locations (`realpath`). One
+// canonical copy plus links into it — `add`'s store links OR skills.sh's
+// install pattern (a real dir in one agent root, the other roots symlinked
+// into it) — is the healthy state and is never reported. skills.sh-owned
+// (External, lockfile-attributed) skills are audited but never re-linked
+// (ADR-0007): doctor proposes no repair for them at all.
 
-import { readFile, readdir, mkdir, copyFile, unlink, lstat } from "node:fs/promises";
+import { readFile, readdir, mkdir, copyFile, unlink, lstat, realpath } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -73,6 +81,20 @@ async function classifyOcc(occ, store) {
   }
 }
 
+// The occurrence's resolved (realpath) content location — for a symlink, the
+// directory it points at; for a real dir, itself. Comparing resolved paths
+// across a name group is how doctor counts independent content copies (a
+// canonical spread and its links all resolve to the same place). A dir gone
+// since init resolves to itself (nothing live to point elsewhere).
+async function resolveDir(dir) {
+  try {
+    return await realpath(dir);
+  } catch (err) {
+    if (err && err.code === "ENOENT") return dir;
+    throw err;
+  }
+}
+
 // --- detection ---------------------------------------------------------------
 
 /**
@@ -99,7 +121,7 @@ export async function detect(inventory, config) {
   // Classify every occurrence once (read-only).
   const classified = [];
   for (const occ of skills) {
-    classified.push({ occ, kind: await classifyOcc(occ, store) });
+    classified.push({ occ, kind: await classifyOcc(occ, store), resolved: await resolveDir(occ.dir) });
   }
 
   // Group by name, preserving first-seen order.
@@ -115,12 +137,25 @@ export async function detect(inventory, config) {
 
   for (const name of order) {
     const group = byName.get(name);
+
+    // skills.sh-owned (External, lockfile-attributed) skills are audited, never
+    // re-linked (ADR-0007): no consolidation or orphan repair is proposed for
+    // them — managing those installs is `npx skills`'s job.
+    if (group.some((c) => c.occ.tier === "external")) continue;
+
     const loose = group.filter((c) => c.kind === "loose");
 
     if (group.length > 1) {
-      // A spread. It is a PROBLEM only if at least one occurrence is a loose
-      // copy; otherwise every location is a healthy link into the store.
-      if (loose.length === 0) continue;
+      // A spread. Healthy when every occurrence resolves to ONE content
+      // location — all links into the store (`add`/dedup) or one real canonical
+      // dir with the other locations linked into it (skills.sh's pattern). A
+      // duplicate problem needs ≥2 independent content copies.
+      const sources = new Set(group.map((c) => c.resolved));
+      if (sources.size <= 1) continue;
+      // Nothing repairable: no store copy and no loose copy to consolidate from
+      // (e.g. links diverging to targets outside every scan root).
+      const hasStoreOcc = group.some((c) => c.kind === "store");
+      if (!hasStoreOcc && loose.length === 0) continue;
       findings.duplicates.push(buildConsolidation(name, group, store));
     } else if (group.length === 1 && group[0].kind === "loose") {
       // A solo loose copy — an orphan the user never canonically ingested.
