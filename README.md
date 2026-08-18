@@ -107,6 +107,16 @@ npx skills add MarcoHerten/skill-ninja
 
 Distribution via [skills.sh](https://skills.sh) (`npx skills`) — multi-agent targeting, global vs project scope, and hash-based updates come for free. The same routine installs the skills Skill Ninja then watches over.
 
+## Update
+
+Skill Ninja never updates itself — updating is [skills.sh](https://skills.sh)'s job, exactly like installing. Refresh every skills.sh-installed skill (Skill Ninja included) with:
+
+```bash
+npx skills update
+```
+
+The update is hash-based — only skills whose content changed are rewritten — across all agents skills.sh targets. For a project-scoped install, run it from that project's directory. Afterwards run `/ninja init` so the cached inventory — and with it `/ninja status` and `/ninja page` — reflects the new versions: Skill Ninja ships its own `version` / `updated` stamps in the `SKILL.md` frontmatter, bumped each release.
+
 ## Roadmap
 
 - **v1.0** ✅ — `init`, `status`, `doctor`, `add` (+ safety check), `diff`
