@@ -131,4 +131,4 @@ The update is hash-based — only skills whose content changed are rewritten —
 
 ## License
 
-TBD.
+MIT
