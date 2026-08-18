@@ -21,9 +21,9 @@ import { join } from "node:path";
 
 import { loadConfig } from "./config.js";
 import { inventoryPath } from "./inventory.js";
+import { groupByCategory, groupDescription, groupTier, DEFAULT_CATEGORIES } from "./cat.js";
 import {
   groupSkills,
-  isPersonal,
   plural,
   provenanceSummary,
   scanRootLabel,
@@ -68,11 +68,7 @@ function summarySentence(s) {
 // attribution, ADR-0007), else Personal when any occurrence matches the
 // ADR-0004 heuristic. Unattributed occurrences show no badge — their
 // provenance line already reads "provenance unknown".
-function groupTier(occurrences, store) {
-  if (occurrences.some((o) => o.tier === "external")) return "External";
-  if (occurrences.some((o) => isPersonal(o, store))) return "Personal";
-  return null;
-}
+// (groupTier lives in cat.js — the catalog and the page share one rule.)
 
 function renderSkill(group, store) {
   const tier = groupTier(group.occurrences, store);
@@ -86,6 +82,11 @@ function renderSkill(group, store) {
   if (group.hashDuplicate) {
     tags.push(`<span class="tag tag-duplicate">[duplicate — same content, other name]</span>`);
   }
+
+  const description = groupDescription(group.occurrences);
+  const descriptionHtml = description
+    ? `        <p class="desc">${escapeHtml(description)}</p>\n`
+    : "";
 
   const locations = group.occurrences.map((occ) => {
     const link =
@@ -104,6 +105,7 @@ function renderSkill(group, store) {
   return (
     `      <article class="skill">\n` +
     `        <h3>${escapeHtml(group.name)}${tierBadge}${tags.length ? " " + tags.join(" ") : ""}</h3>\n` +
+    descriptionHtml +
     `        <ul class="locations">\n${locations.join("")}        </ul>\n` +
     `      </article>\n`
   );
@@ -127,8 +129,19 @@ export function renderStatusPage(inventory, config) {
     ? `  <p class="meta">inventory from ${escapeHtml(inventory.generatedAt)}</p>\n`
     : "";
 
-  const skillsHtml = groups.length
-    ? groups.map((g) => renderSkill(g, store)).join("")
+  // The catalog regrouping (Issue #10): skills render under category headings
+  // (vocabulary order, "Uncategorized" last) — the same groupByCategory `cat`
+  // uses, so the page and the CLI catalog can never disagree.
+  const vocabulary = config?.categories?.length ? config.categories : DEFAULT_CATEGORIES;
+  const sections = groupByCategory(groups, vocabulary);
+  const skillsHtml = sections.length
+    ? sections
+        .map(
+          (section) =>
+            `      <h2>${escapeHtml(section.category)} (${section.skills.length})</h2>\n` +
+            section.skills.map((g) => renderSkill(g, store)).join(""),
+        )
+        .join("")
     : `      <p class="empty">(none)</p>\n`;
 
   const brokenHtml = broken.length
@@ -162,6 +175,7 @@ export function renderStatusPage(inventory, config) {
   .summary { margin: 14px 0 0; padding: 12px 16px; background: #eef2f6; border-radius: 10px; font-size: 15px; }
   .skill { background: #fff; border: 1px solid #e3e8ee; border-radius: 12px; padding: 14px 18px; margin: 12px 0; }
   .skill h3 { margin: 0; font-size: 16.5px; }
+  .desc { margin: 6px 0 0; color: #3d4754; font-size: 14px; }
   .tag { font-size: 12.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
   .tag-spread { color: #10603e; background: #e2f5ea; }
   .tag-duplicate { color: #8a4b08; background: #fdf0dd; }
@@ -190,7 +204,6 @@ ${generatedAt}    <p class="summary">${escapeHtml(summarySentence(totals))}</p>
   </header>
   <main>
     <section>
-      <h2>Skills</h2>
 ${skillsHtml}    </section>
     <section>
       <h2>Broken symlinks</h2>

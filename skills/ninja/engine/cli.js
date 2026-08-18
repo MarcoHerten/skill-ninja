@@ -13,6 +13,7 @@ import { buildInventory, writeInventory, inventoryPath } from "./inventory.js";
 import { bootstrapConfig, seedConfig, ensureStore } from "./discover.js";
 import { renderStatus } from "./status.js";
 import { pageCommand } from "./page.js";
+import { catCommand } from "./cat.js";
 import { addCommand } from "./add.js";
 import { diffCommand } from "./diff.js";
 import { doctorCommand } from "./doctor.js";
@@ -25,6 +26,7 @@ import { ingestCommand } from "./ingest.js";
 const COMMANDS = {
   init: "Analyze the machine: discover agent roots, vaults, and skills.",
   status: "One inventory view of every skill across agents and vaults.",
+  cat: "Browse skills as a catalog grouped by category; assign stamps the stored copy.",
   page: "Render the cached inventory as a self-contained static HTML status page.",
   doctor: "Detect and repair problems (broken links, duplicates, orphans).",
   add: "Ingest a new skill safely, with provenance recorded.",
@@ -81,6 +83,14 @@ async function showConfig() {
   }
   pushListSection(lines, "vaults", config.vaults);
   pushListSection(lines, "projects", config.projects);
+  // The category vocabulary (Issue #10): the configured list, or a pointer to
+  // the engine defaults so the vocabulary stays discoverable.
+  lines.push("", "categories:");
+  if (!config.categories || config.categories.length === 0) {
+    lines.push("  (engine defaults — see `ninja cat`)");
+  } else {
+    for (const c of config.categories) lines.push(`  ${c}`);
+  }
   process.stdout.write(lines.join("\n") + "\n");
   return 0;
 }
@@ -205,6 +215,9 @@ async function dispatch(argv) {
   }
   if (command === "status") {
     return statusCommand(rest);
+  }
+  if (command === "cat") {
+    return catCommand(rest);
   }
   if (command === "page") {
     return pageCommand(rest);

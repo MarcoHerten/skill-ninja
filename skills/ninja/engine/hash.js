@@ -50,9 +50,12 @@ export function extractBody(text) {
 /** SHA-256 of a SKILL.md's body (the content-hash contract `add`/`diff` use). */
 export const bodyHash = (text) => sha256(extractBody(text));
 
-// Quote a free-text stamp value (provenance.from / relation / description),
-// escaping inner double quotes so the YAML stays one scalar.
+// Quote a free-text stamp value (provenance.from / relation / description /
+// category), escaping inner double quotes so the YAML stays one scalar.
+// Exported because `cat assign` writes a `category:` line with the exact same
+// quoting, and the two must never drift.
 const quote = (v) => `"${String(v).replace(/"/g, '\\"')}"`;
+export { quote as quoteValue };
 
 /**
  * Serialize the ADR-0005 stamp block (deterministic key order) as a complete
@@ -60,8 +63,10 @@ const quote = (v) => `"${String(v).replace(/"/g, '\\"')}"`;
  * lines (the wrap's preserved fields, ADR-0010). One serializer shared by
  * `add`'s stamping and ingest's prompt wrapping so the two can never drift.
  *
- * @param {object} stamps {name, description?, version, updated, hash,
- *   provenance: {source, from, imported, derived_from, relation}}
+ * @param {object} stamps {name, description?, category?, version, updated,
+ *   hash, provenance: {source, from, imported, derived_from, relation}}
+ *   `category` (Issue #10) is emitted only when set — a skill without one
+ *   carries no empty line.
  * @param {string[]} [extraLines] Verbatim lines appended after the provenance
  *   block (before the closing fence).
  * @returns {string} The fenced frontmatter (ending in a newline).
@@ -71,11 +76,13 @@ export function serializeStamps(stamps, extraLines = []) {
   const derivedFrom = p.derived_from === null || p.derived_from === undefined ? "null" : p.derived_from;
   const relation = p.relation === null || p.relation === undefined ? "null" : quote(p.relation);
   const description = stamps.description ? `description: ${quote(stamps.description)}\n` : "";
+  const category = stamps.category ? `category: ${quote(stamps.category)}\n` : "";
   const extra = extraLines.length > 0 ? extraLines.join("\n") + "\n" : "";
   return (
     "---\n" +
     `name: ${stamps.name}\n` +
     description +
+    category +
     `version: ${stamps.version}\n` +
     `updated: ${stamps.updated}\n` +
     `hash: ${stamps.hash}\n` +

@@ -238,6 +238,7 @@ export async function addCommand(args) {
       version: storedStamps.version ?? null,
       hash: storedStamps.hash ?? null,
       description: typeof storedStamps.description === "string" ? storedStamps.description : null,
+      category: typeof storedStamps.category === "string" ? storedStamps.category : null,
       relation: storedStamps.provenance?.relation ?? null,
       body: extractBody(storedText),
     };
@@ -269,13 +270,16 @@ export async function addCommand(args) {
   // 3. Place canonically (store copy is the source of truth) + copy assets.
   // Stamps add to the skill's own frontmatter without dropping it: description
   // and relation carry forward from the prior stored version when the incoming
-  // version doesn't supply them (--relation wins when given).
+  // version doesn't supply them (--relation wins when given), and so does the
+  // category stamp (Issue #10) — the stamp travels with the skill through add,
+  // it is never silently dropped on a re-add.
   const relation = opts.relationFlag ?? (prior ? prior.relation : null);
   await mkdir(skillStoreDir, { recursive: true });
   const stamped = stampFrontmatter(
     {
       name: resolved.name,
       description: incomingFm.description ?? (prior ? prior.description : null),
+      category: incomingFm.category ?? (prior ? prior.category : null),
       version,
       updated: today(),
       hash: incomingHash,

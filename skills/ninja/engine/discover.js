@@ -122,5 +122,10 @@ export async function bootstrapConfig(home) {
     agents: has(existing.agents) ? existing.agents : discoveredAgents,
     vaults: has(existing.vaults) ? existing.vaults : discoveredVaults,
     projects: Array.isArray(existing.projects) ? existing.projects : [],
+    // The category vocabulary (Issue #10) is user-only — never detected, and a
+    // hand-edited list survives re-seeding like `projects` does.
+    categories: Array.isArray(existing.categories)
+      ? existing.categories.filter((c) => typeof c === "string" && c.trim() !== "")
+      : null,
   };
 }

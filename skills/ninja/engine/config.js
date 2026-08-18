@@ -50,5 +50,10 @@ export function normalizeConfig(parsed, home) {
     vaults: expandStrings(parsed.vaults),
     // Project working directories to scan for SKILL.md (ADR-0003).
     projects: expandStrings(parsed.projects),
+    // The category vocabulary for `cat` / `page` (Issue #10). Null = the
+    // engine defaults (DEFAULT_CATEGORIES in cat.js) — resolveVocabulary picks.
+    categories: Array.isArray(parsed.categories)
+      ? parsed.categories.filter((c) => typeof c === "string" && c.trim() !== "")
+      : null,
   };
 }

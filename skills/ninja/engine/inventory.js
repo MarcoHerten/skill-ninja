@@ -221,6 +221,8 @@ async function describeSkill(skillFile, skillDir, scanRoot, attribution) {
     version: frontmatter.version ?? null,
     updated: frontmatter.updated ?? null,
     provenance: frontmatter.provenance ?? null,
+    category: frontmatter.category ?? null,
+    description: frontmatter.description ?? null,
     tier: ext ? "external" : null,
     external: ext ? { source: ext.source, computedHash: ext.computedHash } : null,
     hash: bodyHash(text),
@@ -311,7 +313,7 @@ function finalizeInventory(scanRoots, out) {
     byScanRoot[key] = (byScanRoot[key] ?? 0) + 1;
   }
   return {
-    version: 2,
+    version: 3,
     generatedAt: new Date().toISOString(),
     counts: {
       skills: out.skills.length,

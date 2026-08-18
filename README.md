@@ -14,6 +14,7 @@ Skill Ninja runs **inside your coding agent**, on top of the skills [skills.sh](
 
 - **`/ninja init`** — analyzes your machine: which agents are installed, where every skill lives across roots and vaults (no config needed on first run — it's created for you).
 - **`/ninja status`** — one inventory view: per-agent reachability, copy-vs-symlink, global-vs-project, duplicates, broken symlinks, versions, and provenance.
+- **`/ninja cat`** *(live, v1.2)* — the category catalog: browse your skills grouped by category (each with its one-line description), filter by a category term; `cat assign` stamps a category onto the stored copy. Categories live in the skill's frontmatter — never in a hand-maintained mapping ([ADR-0013](./docs/adr/0013-category-stamps-and-catalog.md)) — and the status page groups by category too.
 - **`/ninja page`** *(live, v1.1)* — renders the cached inventory as one self-contained static HTML page (`~/.skill-ninja/status.html`: inline styles, no server, no external assets) and prints the path. The browser counterpart of `/ninja status`, regenerated on every run — [ADR-0011](./docs/adr/0011-static-html-status-page.md).
 - **`/ninja doctor`** — detects and repairs problems (broken links, duplicates, orphans), with your approval for each fix.
 - **`/ninja add`** — ingests a skill that didn't come through skills.sh (a friend, a download, a bare prompt): safety check, diff, provenance + content-hash stamp, a human-readable `CHANGELOG.md`, and install. Versioned in your private GitHub repo.
@@ -92,12 +93,13 @@ The bulk path: the export with the same skill as folder, `.zip`, `.skill`, *and*
 | Skill came through skills.sh | manage with `npx skills` — Skill Ninja audits it, but doesn't re-link it |
 | One new skill from a friend, download, or prompt | `/ninja add` |
 | A whole export / prompt library | `/ninja ingest` |
+| "Which of my skills are marketing skills?" | `/ninja cat` (then `cat assign` for the uncategorized ones) |
 | Landscape feels off | `/ninja status`, then `/ninja doctor` |
 | An updated copy of a stored skill shows up | `/ninja diff`, then `/ninja add` |
 
 ## Status
 
-🚧 **Early — v1.0 command surface implemented; v1.1 bulk ingest + status page live.** v1.0 is live: `init` (bootstrap + scan), `status`, `doctor`, `add` (safety check, stamping, commit + push), `diff`. The v1.1 `ingest` pipeline is live end to end — classification, deterministic cluster resolution (winners / losers / needs-decision with side-by-sides), prompt wrapping, the safety column, and `--apply` (store the winners with provenance in one commit + push, idempotent re-ingest) ([ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)) — and the v1.1 static HTML status page (`page`) renders the inventory as one self-contained offline file ([ADR-0011](./docs/adr/0011-static-html-status-page.md)). The skill is invoked as `/ninja` (e.g. `/ninja init`). See [`SPEC.md`](./SPEC.md), [`CONTEXT.md`](./CONTEXT.md), and [`docs/adr/`](./docs/adr).
+🚧 **Early — v1.0 command surface implemented; v1.1 bulk ingest + status page; v1.2 category catalog live.** v1.0 is live: `init` (bootstrap + scan), `status`, `doctor`, `add` (safety check, stamping, commit + push), `diff`. The v1.1 `ingest` pipeline is live end to end — classification, deterministic cluster resolution (winners / losers / needs-decision with side-by-sides), prompt wrapping, the safety column, and `--apply` (store the winners with provenance in one commit + push, idempotent re-ingest) ([ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)) — and the v1.1 static HTML status page (`page`) renders the inventory as one self-contained offline file ([ADR-0011](./docs/adr/0011-static-html-status-page.md)). The v1.2 category catalog is live: `cat` groups the landscape by category, `cat assign` stamps categories onto stored skills, and the page groups by category ([ADR-0013](./docs/adr/0013-category-stamps-and-catalog.md)). The skill is invoked as `/ninja` (e.g. `/ninja init`). See [`SPEC.md`](./SPEC.md), [`CONTEXT.md`](./CONTEXT.md), and [`docs/adr/`](./docs/adr).
 
 ## Install
 

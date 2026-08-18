@@ -62,7 +62,7 @@ walk already enumerates entries); brokenness is detected by following the link
 
 ```jsonc
 {
-  "version": 2,                              // inventory schema version
+  "version": 3,                              // inventory schema version
   "generatedAt": "2026-08-13T12:00:00.000Z", // ISO timestamp of this scan
   "counts": {
     "skills": 3,                             // total skill occurrences
@@ -89,6 +89,8 @@ walk already enumerates entries); brokenness is detected by following the link
         "imported": "2026-06-01",
         "derived_from": null
       },
+      "category":    "Marketing & Social",   // v3 (ADR-0013): frontmatter category, else null
+      "description": "Writes LinkedIn posts.", // v3 (ADR-0013): frontmatter description, else null
       "tier":  "external",                   // "external" when skills.sh-attributed, else null
       "external": { "source": "friend/repo", "computedHash": "…" },
       "hash":  "ab12cd34…"                   // body content hash (ADR-0005)
@@ -118,14 +120,18 @@ duplicate, without re-scanning the filesystem. Consumers comparing locations
 against each other compare `resolved` paths (the walked `dir` may contain
 symlinked ancestors).
 
+**Schema v3** (ADR-0013) added per-occurrence `category` and `description`,
+parsed from the skill's own frontmatter (absent → `null`) — the data the
+`cat` catalog and the page's category grouping read.
+
 ### Frontmatter parsing
 
 YAML-ish frontmatter at the top of `SKILL.md`, delimited by opening and closing
 `---` lines, is parsed with a minimal built-in parser (no YAML dependency): top
--level `key: value` pairs plus a nested `provenance:` object (2-space-indented
-children). `version`, `updated`, and `provenance` are extracted where present;
-absent or unparseable frontmatter yields `null` for each field — `init` never
-throws on a malformed `SKILL.md`.
+level `key: value` pairs plus a nested `provenance:` object (2-space-indented
+children). `version`, `updated`, `provenance`, `category`, and `description`
+are extracted where present; absent or unparseable frontmatter yields `null`
+for each field — `init` never throws on a malformed `SKILL.md`.
 
 ## Why
 
@@ -142,4 +148,5 @@ distinctly is what lets `doctor` later offer to repair them.
   `name`; they must call `init` (or check the cache) before reporting.
 - Adding a new scope type means extending `buildInventory` and the `scope` shape.
 - The frontmatter parser is intentionally minimal; only the documented fields are
-  captured, unknown fields are ignored.
+  captured (`version`, `updated`, `provenance`, `category`, `description`),
+  unknown fields are ignored.
