@@ -71,7 +71,8 @@ export function provenanceSummary(occ) {
 // Personal-tier heuristic (ADR-0004): a skill occurrence is Personal if it lives
 // under the configured canonical store path, or its provenance.source is
 // "authored". External skills (owned by skills.sh) are never Personal.
-function isPersonal(occ, store) {
+// Exported for `page`, which badges each skill's tier with the same rule.
+export function isPersonal(occ, store) {
   if (occ.tier === "external") return false;
   if (store) {
     const prefix = store.endsWith("/") ? store : store + "/";
@@ -81,7 +82,8 @@ function isPersonal(occ, store) {
 }
 
 // `version: <v>` plus an `(updated <u>)` suffix when the updated date is known.
-function versionLine(occ) {
+// Exported for `page`, which renders the same line per location.
+export function versionLine(occ) {
   const v = occ.version ?? "unknown";
   let line = `version: ${v}`;
   if (occ.updated) line += ` (updated ${occ.updated})`;
@@ -114,7 +116,9 @@ function isLinkedSpread(occurrences) {
 // content hash with an occurrence under a DIFFERENT name — the secondary signal
 // that catches the same skill living under a different name (CONTEXT.md
 // "Duplicate").
-function groupSkills(skills) {
+// Exported for `page`: the HTML status page is the browser counterpart of this
+// report and MUST group/tag identically — one implementation, no divergent copy.
+export function groupSkills(skills) {
   const map = new Map();
   for (const occ of skills) {
     if (!map.has(occ.name)) map.set(occ.name, []);
@@ -143,7 +147,7 @@ function groupSkills(skills) {
   return groups;
 }
 
-function plural(n, word) {
+export function plural(n, word) {
   return `${n} ${n === 1 ? word : word + "s"}`;
 }
 

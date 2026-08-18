@@ -14,6 +14,7 @@ Skill Ninja runs **inside your coding agent**, on top of the skills [skills.sh](
 
 - **`/ninja init`** — analyzes your machine: which agents are installed, where every skill lives across roots and vaults (no config needed on first run — it's created for you).
 - **`/ninja status`** — one inventory view: per-agent reachability, copy-vs-symlink, global-vs-project, duplicates, broken symlinks, versions, and provenance.
+- **`/ninja page`** *(live, v1.1)* — renders the cached inventory as one self-contained static HTML page (`~/.skill-ninja/status.html`: inline styles, no server, no external assets) and prints the path. The browser counterpart of `/ninja status`, regenerated on every run — [ADR-0011](./docs/adr/0011-static-html-status-page.md).
 - **`/ninja doctor`** — detects and repairs problems (broken links, duplicates, orphans), with your approval for each fix.
 - **`/ninja add`** — ingests a skill that didn't come through skills.sh (a friend, a download, a bare prompt): safety check, diff, provenance + content-hash stamp, and install. Versioned in your private GitHub repo.
 - **`/ninja ingest`** *(live, v1.1)* — point it at a messy directory (a skills export, a prompt library): it classifies everything, clusters the variants, and reports what it would keep — one winner per cluster, losers with hashes and reasons, junk, safety findings, and side-by-sides for the divergent duplicates no rule can resolve. On `--apply` it stores the winners, versioned in one commit — the source is never touched, nothing is auto-linked, and re-ingesting is a no-op for unchanged skills.
@@ -40,7 +41,7 @@ This installs Skill Ninja as a skill into your agent(s) — the same distributio
 /ninja status
 ```
 
-`init` needs no preparation: it discovers which coding agents are on your machine, finds every skill across agent roots, Obsidian vaults, and project directories, and bootstraps the config (`~/.skill-ninja/config.json`) plus your **canonical store** (`~/.skill-ninja/store`, git-initialized). `status` then gives you the one inventory view — duplicates, broken symlinks, versions, provenance. Re-run either whenever the landscape changes; filters like `/ninja status --duplicates` narrow the view.
+`init` needs no preparation: it discovers which coding agents are on your machine, finds every skill across agent roots, Obsidian vaults, and project directories, and bootstraps the config (`~/.skill-ninja/config.json`) plus your **canonical store** (`~/.skill-ninja/store`, git-initialized). `status` then gives you the one inventory view — duplicates, broken symlinks, versions, provenance. Re-run either whenever the landscape changes; filters like `/ninja status --duplicates` narrow the view. Prefer a browser? `/ninja page` writes the same view as a self-contained HTML file and tells you where.
 
 ### 3. Clean up: `doctor`
 
@@ -96,7 +97,7 @@ The bulk path: the export with the same skill as folder, `.zip`, `.skill`, *and*
 
 ## Status
 
-🚧 **Early — v1.0 command surface implemented; v1.1 bulk ingest live.** v1.0 is live: `init` (bootstrap + scan), `status`, `doctor`, `add` (safety check, stamping, commit + push), `diff`. The v1.1 `ingest` pipeline is live end to end — classification, deterministic cluster resolution (winners / losers / needs-decision with side-by-sides), prompt wrapping, the safety column, and `--apply` (store the winners with provenance in one commit + push, idempotent re-ingest) ([ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)). The skill is invoked as `/ninja` (e.g. `/ninja init`). See [`SPEC.md`](./SPEC.md), [`CONTEXT.md`](./CONTEXT.md), and [`docs/adr/`](./docs/adr).
+🚧 **Early — v1.0 command surface implemented; v1.1 bulk ingest + status page live.** v1.0 is live: `init` (bootstrap + scan), `status`, `doctor`, `add` (safety check, stamping, commit + push), `diff`. The v1.1 `ingest` pipeline is live end to end — classification, deterministic cluster resolution (winners / losers / needs-decision with side-by-sides), prompt wrapping, the safety column, and `--apply` (store the winners with provenance in one commit + push, idempotent re-ingest) ([ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)) — and the v1.1 static HTML status page (`page`) renders the inventory as one self-contained offline file ([ADR-0011](./docs/adr/0011-static-html-status-page.md)). The skill is invoked as `/ninja` (e.g. `/ninja init`). See [`SPEC.md`](./SPEC.md), [`CONTEXT.md`](./CONTEXT.md), and [`docs/adr/`](./docs/adr).
 
 ## Install
 
@@ -109,7 +110,7 @@ Distribution via [skills.sh](https://skills.sh) (`npx skills`) — multi-agent t
 ## Roadmap
 
 - **v1.0** ✅ — `init`, `status`, `doctor`, `add` (+ safety check), `diff`
-- **v1.1** — `ingest` (bulk pipeline for messy skill/prompt directories — [ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)) ✅; static HTML status page
+- **v1.1** ✅ — `ingest` (bulk pipeline for messy skill/prompt directories — [ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)); static HTML status page ([ADR-0011](./docs/adr/0011-static-html-status-page.md))
 
 ## Design principles
 

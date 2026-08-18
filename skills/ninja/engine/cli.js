@@ -12,6 +12,7 @@ import { agentRoot } from "./agents.js";
 import { buildInventory, writeInventory, inventoryPath } from "./inventory.js";
 import { bootstrapConfig, seedConfig, ensureStore } from "./discover.js";
 import { renderStatus } from "./status.js";
+import { pageCommand } from "./page.js";
 import { addCommand } from "./add.js";
 import { diffCommand } from "./diff.js";
 import { doctorCommand } from "./doctor.js";
@@ -24,6 +25,7 @@ import { ingestCommand } from "./ingest.js";
 const COMMANDS = {
   init: "Analyze the machine: discover agent roots, vaults, and skills.",
   status: "One inventory view of every skill across agents and vaults.",
+  page: "Render the cached inventory as a self-contained static HTML status page.",
   doctor: "Detect and repair problems (broken links, duplicates, orphans).",
   add: "Ingest a new skill safely, with provenance recorded.",
   diff: "Show what changed in a skill since the stored version.",
@@ -203,6 +205,9 @@ async function dispatch(argv) {
   }
   if (command === "status") {
     return statusCommand(rest);
+  }
+  if (command === "page") {
+    return pageCommand(rest);
   }
   if (command === "add") {
     return addCommand(rest);

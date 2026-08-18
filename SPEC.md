@@ -1,7 +1,7 @@
 # Skill Ninja — v1.1 Specification
 
 > Vocabulary: see [`CONTEXT.md`](./CONTEXT.md) (Skill, Skill Ninja, Provenance, the tiers, Agent root, Tool asymmetry; Ingest, Candidate, Cluster, Wrap).
-> Status: v1.0 command surface implemented and realigned to the sharpened architecture — installation delegated to skills.sh (ADR-0007), `init` bootstraps configuration (ADR-0008). v1.1 bulk `ingest` is live end to end (ADR-0009, ADR-0010): dry-run classification, prompt wrap previews, cluster resolution (winners / losers / needs-decision with side-by-side, safety column), and `--apply` (store the winners with provenance in one commit + push, idempotent re-ingest). The skill is invoked as `/ninja` (e.g. `/ninja init`).
+> Status: v1.0 command surface implemented and realigned to the sharpened architecture — installation delegated to skills.sh (ADR-0007), `init` bootstraps configuration (ADR-0008). v1.1 bulk `ingest` is live end to end (ADR-0009, ADR-0010): dry-run classification, prompt wrap previews, cluster resolution (winners / losers / needs-decision with side-by-side, safety column), and `--apply` (store the winners with provenance in one commit + push, idempotent re-ingest). The v1.1 static HTML status page (`page`, ADR-0011) is live. The skill is invoked as `/ninja` (e.g. `/ninja init`).
 
 ## Problem Statement
 
@@ -20,7 +20,7 @@ Existing approaches are either ad-hoc (a hand-managed folder of symlinks) or ove
 - **`ingest`** *(v1.1)* — the bulk pipeline for messy source directories (ADR-0009): point it at a directory of skills in any packaging (folders, `.zip`/`.skill`/`.skill.zip` archives, bare `SKILL.md` files) plus raw prompt documents; it classifies every item, clusters variants, and reports a proposed resolution — winners with reasons, discarded variants, junk, safety findings, unresolved conflicts. `--apply` stores the approved winners with provenance in one commit: read-only on the source, links nothing. Prompt documents are deterministically wrapped into skills (ADR-0010).
 - **`diff`** — shows what changed in a skill since the stored version ("a friend sent v2 — what's new?").
 
-**Personal** skills live in a **local canonical store** — a git repo with an optional **private remote** for versioning (`add` commits and pushes). **External** skills are owned by skills.sh (its `skills-lock.json`); Skill Ninja audits them but does not manage them. A static HTML status page is deferred to v1.1.
+**Personal** skills live in a **local canonical store** — a git repo with an optional **private remote** for versioning (`add` commits and pushes). **External** skills are owned by skills.sh (its `skills-lock.json`); Skill Ninja audits them but does not manage them. A static HTML status page (`page`, v1.1: ADR-0011) renders the cached inventory as one self-contained offline file.
 
 ## User Stories
 
@@ -116,7 +116,6 @@ Existing approaches are either ad-hoc (a hand-managed folder of symlinks) or ove
 
 ## Out of Scope
 
-- **Status page / HTML dashboard** — deferred to v1.1.
 - **Source-directory cleanup** — `ingest` never mutates the directory it analyzes; tidying the source is a separate activity, if ever.
 - **Bulk linking** — `ingest` stores without linking; a command to link stored skills into agent roots in bulk may follow later.
 - **Bulk git/URL sources** — `ingest` takes local directories; repo/URL sources remain `add`'s job.
@@ -130,6 +129,6 @@ Existing approaches are either ad-hoc (a hand-managed folder of symlinks) or ove
 
 ## Further Notes
 
-- **Load-bearing decisions:** public product; standalone system that delegates installation to skills.sh (ADR-0007); local canonical store + optional private Git remote; Node engine + skill interface; `init` bootstraps configuration (ADR-0008); the five v1.0 commands, plus v1.1 bulk `ingest` as a read-only, two-phase, store-only pipeline (ADR-0009) that wraps prompt documents into skills (ADR-0010); status page deferred to v1.1.
+- **Load-bearing decisions:** public product; standalone system that delegates installation to skills.sh (ADR-0007); local canonical store + optional private Git remote; Node engine + skill interface; `init` bootstraps configuration (ADR-0008); the five v1.0 commands, plus v1.1 bulk `ingest` as a read-only, two-phase, store-only pipeline (ADR-0009) that wraps prompt documents into skills (ADR-0010), and the v1.1 static HTML status page (ADR-0011).
 - **Design references:** a prior personal skill store (tier model, frontmatter/provenance convention, dual-linking) and `mattpocock/skills` (distribution + dual-channel model). **Anti-pattern reference:** an earlier overloaded attempt — avoid its manual catalog, multi-target deploy script, and sync-as-transport.
 - **Build sequencing:** although the spec covers all of v1.0, the build can still sequence features — `init` + `status` first (the "see your chaos" core), then `add` + `diff`, then `doctor`. For v1.1, `ingest` slices naturally bottom-up: classification + normalization first (directly testable against the audited sample directories), then cluster resolution + report, then `--apply` (store, stamp, one commit). Slicing is decided at `/to-tickets`.
