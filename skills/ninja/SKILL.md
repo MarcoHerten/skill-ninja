@@ -1,6 +1,8 @@
 ---
 name: ninja
 description: Manage the skills AI coding agents consume — analyze the machine, inventory every skill across agent roots and vaults, repair the mess, and ingest new skills safely with provenance. Drives a bundled Node engine.
+version: 1.1.0
+updated: 2026-08-18
 ---
 
 # Skill Ninja
@@ -36,7 +38,7 @@ Because of **tool asymmetry**, Skill Ninja resolves each **agent root** (e.g. `~
 
 ### `/ninja init` (live)
 
-Runs `node <SKILL_DIR>/engine/cli.js init` and relays the output. On a fresh machine it needs **no pre-existing config** — it discovers the landscape, seeds `~/.skill-ninja/config.json`, creates the canonical store (+ `git init`), then scans (ADR-0008). It scans every configured **scan root** — the **agent roots** for each detected agent (existence-probe over skills.sh's conventions; tool asymmetry abstracted), the Obsidian **vaults** (read from `obsidian.json`), and the **project** working directories — and discovers every **Skill** (a `SKILL.md`, found by descent; a directory holding one is recorded and not descended into, since its subdirs are bundled assets). For each skill it records its location and scan root, and parses `version` / `updated` / `provenance` from the `SKILL.md` frontmatter where present (absent fields are `null`). It also reads any skills.sh `skills-lock.json` to attribute skills to their source. Broken symlinks are recorded distinctly rather than dropped.
+Runs `node <SKILL_DIR>/engine/cli.js init` and relays the output. On a fresh machine it needs **no pre-existing config** — it discovers the landscape, seeds `~/.skill-ninja/config.json`, creates the canonical store (+ `git init`), then scans (ADR-0008). It scans every configured **scan root** — the **agent roots** for each detected agent (existence-probe over skills.sh's conventions; tool asymmetry abstracted), the Obsidian **vaults** (read from `obsidian.json`), and the **project** working directories — and discovers every **Skill** (a `SKILL.md`, found by descent; a directory holding one is recorded and not descended into, since its subdirs are bundled assets). For each skill it records its location and scan root, and parses `version` / `updated` / `provenance` from the `SKILL.md` frontmatter where present (absent fields are `null`). It also reads skills.sh's `skills-lock.json` (the global one at `~/skills-lock.json`, plus any per scan root) to attribute skills to their source. Broken symlinks are recorded distinctly rather than dropped.
 
 The result is written as a **cached inventory** at `~/.skill-ninja/inventory.json` — the data layer the other commands read. The command prints a short summary (skills found, per-scan-root counts, broken-symlink count, cache path). Running it again re-discovers, re-seeds the config, and overwrites the cache with a fresh scan (idempotent — this is also how you refresh or edit config). The inventory schema and discovery rule are documented in `docs/adr/0003-cached-inventory-and-discovery.md`; the bootstrap in `docs/adr/0008-init-bootstraps-config-and-discovers.md`.
 
