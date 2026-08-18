@@ -56,7 +56,7 @@ test("add writes a CHANGELOG.md with a first entry for a new skill", async () =>
       `generated header, got:\n${changelog}`,
     );
     assert.ok(
-      changelog.includes(`## 1.0.0 (${today()})`),
+      changelog.includes(`## v1.0.0 (${today()})`),
       `version entry, got:\n${changelog}`,
     );
     assert.ok(
@@ -124,7 +124,7 @@ test("add preserves an incoming author changelog above the generated entry", asy
     );
     // The generated entry appends below the author content.
     assert.ok(
-      changelog.indexOf("Erstfassung") < changelog.indexOf(`## 1.0.0 (${today()})`),
+      changelog.indexOf("Erstfassung") < changelog.indexOf(`## v1.0.0 (${today()})`),
       `generated entry below author content, got:\n${changelog}`,
     );
   } finally {
@@ -146,7 +146,7 @@ test("add creates a plain changelog when the source carries none, and a nested c
 
     const changelog = await readStoredChangelog(sb.home, "plain");
     assert.ok(changelog.startsWith("# Changelog — plain\n"), `header, got:\n${changelog}`);
-    assert.ok(changelog.includes(`## 1.0.0 (${today()})`), `entry, got:\n${changelog}`);
+    assert.ok(changelog.includes(`## v1.0.0 (${today()})`), `entry, got:\n${changelog}`);
     // The nested file is an ordinary bundled asset, untouched by the writer.
     assert.equal(
       await readFile(join(storePath(sb.home), "plain", "references", "CHANGELOG.md"), "utf8"),
@@ -229,7 +229,7 @@ test("add appends a version entry with change counts on a changed re-add", async
     const changelog = await readStoredChangelog(sb.home, "updater");
     // Chronological: the 1.0.0 entry stays above the appended 1.0.1 entry.
     assert.ok(
-      changelog.indexOf("## 1.0.0") < changelog.indexOf(`## 1.0.1 (${today()})`),
+      changelog.indexOf("## v1.0.0") < changelog.indexOf(`## v1.0.1 (${today()})`),
       `entry order, got:\n${changelog}`,
     );
     // Counts from the known bodies: "# v1 body"→"# v2 body" is a change (1),
@@ -298,11 +298,11 @@ test("add bootstraps a changelog on the first update of a pre-feature skill", as
       `bootstrap note, got:\n${changelog}`,
     );
     assert.ok(
-      changelog.includes(`## 1.0.1 (${today()})`),
+      changelog.includes(`## v1.0.1 (${today()})`),
       `update entry present, got:\n${changelog}`,
     );
     // Nothing retro-fabricated: no invented 1.0.0 entry.
-    assert.ok(!changelog.includes("## 1.0.0"), `no fabricated first entry, got:\n${changelog}`);
+    assert.ok(!changelog.includes("## v1.0.0"), `no fabricated first entry, got:\n${changelog}`);
   } finally {
     await sb.cleanup();
   }
@@ -343,7 +343,7 @@ test("add preserves the author preamble and maintenance notes across the append"
       `maintenance notes survive, got:\n${after}`,
     );
     assert.ok(
-      after.includes(`## 1.0.1 (${today()})`),
+      after.includes(`## v1.0.1 (${today()})`),
       `appended entry, got:\n${after}`,
     );
   } finally {
@@ -372,7 +372,7 @@ test("ingest --apply writes batch changelogs for stored winners", async () => {
     // Cluster winner (alpha-v2 won on the v2 signal, alpha superseded).
     const alpha = await readFile(join(storePath(sb.home), "alpha", "CHANGELOG.md"), "utf8");
     assert.match(alpha, /^# Changelog — alpha\n/, `header, got:\n${alpha}`);
-    assert.ok(alpha.includes(`## 1.0.0 (${today()})`), `entry, got:\n${alpha}`);
+    assert.ok(alpha.includes(`## v1.0.0 (${today()})`), `entry, got:\n${alpha}`);
     assert.ok(
       alpha.includes('- Bulk ingested from batch "export" (source: received).'),
       `batch line, got:\n${alpha}`,
@@ -389,6 +389,32 @@ test("ingest --apply writes batch changelogs for stored winners", async () => {
       `batch line, got:\n${beta}`,
     );
     assert.ok(!beta.includes("Won its cluster"), `no lineage line, got:\n${beta}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// The batch's single commit includes the changelog files — the changelog and
+// the content it describes are one approval unit (issue #9 AC).
+test("ingest --apply lands the changelogs in the batch's single commit", async () => {
+  const sb = await createSandbox();
+  try {
+    makeStoreGitRepo(sb.home);
+    await mkdir(join(sb.home, "export"), { recursive: true });
+    await plantSkill(sb.home, "export/beta", { body: "# Beta\n" });
+    await plantSkill(sb.home, "export/gamma", { body: "# Gamma\n" });
+
+    const { stdout, exitCode } = await runCli(sb.home, ["ingest", join(sb.home, "export"), "--apply"]);
+    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+
+    const files = execFileSync(
+      "git",
+      ["-C", storePath(sb.home), "show", "--pretty=format:", "--name-only", "HEAD"],
+      { encoding: "utf8" },
+    ).split(/\r?\n/);
+    for (const f of ["beta/SKILL.md", "beta/CHANGELOG.md", "gamma/SKILL.md", "gamma/CHANGELOG.md"]) {
+      assert.ok(files.includes(f), `${f} in the commit, got:\n${files.join("\n")}`);
+    }
   } finally {
     await sb.cleanup();
   }
@@ -487,7 +513,7 @@ test("ingest --apply preserves a winner package's own changelog as the author pr
     assert.match(changelog, /^# Changelog — delta\n/, `generated header, got:\n${changelog}`);
     assert.ok(
       changelog.indexOf("Erstfassung aus dem Workshop.") <
-        changelog.indexOf(`## 1.0.0 (${today()})`),
+        changelog.indexOf(`## v1.0.0 (${today()})`),
       `author content above the entry, got:\n${changelog}`,
     );
   } finally {

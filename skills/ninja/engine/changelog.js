@@ -10,9 +10,32 @@
 // SKILL.md, so `diff`, the comparables check, and duplicate detection are
 // unaffected by construction.
 
+import { join } from "node:path";
+import { readFile } from "node:fs/promises";
+
 import { shortHash } from "./diff.js";
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+// Every entry opens with the same heading shape (ADR-0012 file layout).
+const entryHeading = (version, date) => `## v${version} (${date})\n\n`;
+
+/**
+ * Read the author changelog a source directory carries (its package root's
+ * `CHANGELOG.md`), or null when there is none. The one read both `add`'s
+ * source resolution and ingest's winner staging use — the module that owns
+ * the concept owns the read.
+ *
+ * @param {string} dir A skill's working/source directory.
+ * @returns {Promise<string|null>}
+ */
+export async function readAuthorChangelog(dir) {
+  try {
+    return await readFile(join(dir, "CHANGELOG.md"), "utf8");
+  } catch {
+    return null;
+  }
+}
 
 // The bootstrap note a pre-feature skill's changelog opens with (created on
 // its first changed re-add): earlier history stays where it always was — the
@@ -23,15 +46,10 @@ export const BOOTSTRAP_NOTE =
 /** The generated file header: `# Changelog — <name>`. */
 export const changelogHeader = (name) => `# Changelog — ${name}`;
 
-/**
- * Drop a leading `# Changelog …` H1 from incoming author content (any casing,
- * any suffix after "Changelog"). The generated header replaces the author's
- * H1 — everything after it is preserved verbatim.
- *
- * @param {string} text
- * @returns {string}
- */
-export function stripAuthorH1(text) {
+// Drop a leading `# Changelog …` H1 from incoming author content (any casing,
+// any suffix after "Changelog"). The generated header replaces the author's
+// H1 — everything after it is preserved verbatim.
+function stripAuthorH1(text) {
   const s = String(text ?? "");
   const m = s.match(/^#\s+[Cc]hangelog[^\n]*\n?/);
   return m ? s.slice(m[0].length) : s;
@@ -50,7 +68,7 @@ export function stripAuthorH1(text) {
  * @returns {string}
  */
 export function firstEntry({ version, date, source, from, relation = null }) {
-  let s = `## ${version} (${date})\n\n`;
+  let s = entryHeading(version, date);
   s += `- Ingested by Skill Ninja from "${from}" (source: ${source}).\n`;
   if (relation) s += `- Relation: "${relation}".\n`;
   return s;
@@ -72,7 +90,7 @@ export function firstEntry({ version, date, source, from, relation = null }) {
  */
 export function updateEntry({ version, date, counts, priorHash = null, relation = null }) {
   const c = counts ?? { added: 0, removed: 0, changed: 0 };
-  let s = `## ${version} (${date})\n\n`;
+  let s = entryHeading(version, date);
   s += `- Content update: ${plural(c.added, "line")} added, ${plural(c.removed, "line")} removed, ${plural(c.changed, "line")} changed.\n`;
   if (priorHash) s += `- Supersedes prior content, hash ${shortHash(priorHash)}.\n`;
   if (relation) s += `- Relation: "${relation}".\n`;
@@ -92,7 +110,7 @@ export function updateEntry({ version, date, counts, priorHash = null, relation 
  * @returns {string}
  */
 export function batchEntry({ version, date, from, supersededHashes = [] }) {
-  let s = `## ${version} (${date})\n\n`;
+  let s = entryHeading(version, date);
   s += `- Bulk ingested from batch "${from}" (source: received).\n`;
   if (supersededHashes.length > 0) {
     const hashes = supersededHashes.map(shortHash).join(", ");

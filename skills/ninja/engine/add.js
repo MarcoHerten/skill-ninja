@@ -24,7 +24,7 @@ import { parseFrontmatter } from "./inventory.js";
 import { scanSafety, renderSafety } from "./safety.js";
 import { extractBody, serializeStamps } from "./hash.js";
 import { renderDiff, lineDiff, summarizeChanges } from "./diff.js";
-import { renderChangelogFile, appendChangelogEntry, firstEntry, updateEntry } from "./changelog.js";
+import { renderChangelogFile, appendChangelogEntry, firstEntry, updateEntry, readAuthorChangelog } from "./changelog.js";
 import { resolveSkillFromSource } from "./source.js";
 import { linkSkill } from "./links.js";
 import { findComparableSkills, renderComparables } from "./compare.js";
@@ -142,14 +142,7 @@ async function resolveSource(opts) {
 
   // The incoming author changelog (ADR-0012), when the source carries one —
   // preserved verbatim as the generated file's preamble on first ingest.
-  let authorChangelog = null;
-  if (dir) {
-    try {
-      authorChangelog = await readFile(join(dir, "CHANGELOG.md"), "utf8");
-    } catch {
-      authorChangelog = null;
-    }
-  }
+  const authorChangelog = dir ? await readAuthorChangelog(dir) : null;
 
   const provSource = opts.sourceFlag || (sourceType === "repo" ? "external" : "received");
   const from = opts.fromFlag || (sourceType === "prompt" ? "prompt" : opts.source);

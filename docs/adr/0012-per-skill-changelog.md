@@ -66,7 +66,9 @@ shapes and obey the same preservation rules.
   wipe the generated history.
 - **Author content is preserved, never merged.** On first ingest the incoming
   skill's own `CHANGELOG.md` content is carried verbatim as the preamble (its
-  leading `# Changelog` H1 is dropped — the generated header replaces it).
+  leading `# Changelog` H1 is dropped — the generated header replaces it — and
+  the blank lines around the block are normalized so the one-blank-line block
+  separation holds; every other byte is preserved).
   On re-add the stored file is authoritative and append-only; a changed author
   changelog in the incoming folder is not merged (free-form text cannot be
   merged deterministically, and overwriting would lose the generated lineage —

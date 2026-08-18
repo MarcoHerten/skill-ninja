@@ -31,7 +31,7 @@ import { execFileSync } from "node:child_process";
 import { parseFrontmatter } from "./inventory.js";
 import { bodyHash, extractBody, serializeStamps, splitFrontmatter } from "./hash.js";
 import { lineDiff, summarizeChanges, shortHash } from "./diff.js";
-import { renderChangelogFile, batchEntry } from "./changelog.js";
+import { renderChangelogFile, batchEntry, readAuthorChangelog } from "./changelog.js";
 import { scanSafety } from "./safety.js";
 import { loadConfig } from "./config.js";
 import { ensureStore } from "./discover.js";
@@ -1063,14 +1063,13 @@ export function renderReport(root, candidates, clusters = resolveClusters(candid
 // previewed and stored bytes agree).
 const batchLabel = (root) => basename(root);
 
-// The superseded lineage a winner records in provenance.derived_from: the
-// content hashes of its divergent losing variants (identical-copy losers share
-// the winner's hash — nothing was superseded, the content lives on). Full
-// hashes, deterministic variant order, comma-joined; null when nothing was
-// superseded.
-function winnerLineage(cluster) {
-  const hashes = cluster.variants.filter((v) => v.hash !== cluster.winner.hash).map((v) => v.hash);
-  return hashes.length ? hashes.join(", ") : null;
+// The superseded lineage a winner records: the content hashes of its divergent
+// losing variants (identical-copy losers share the winner's hash — nothing was
+// superseded, the content lives on). Deterministic variant order; [] when
+// nothing was superseded. Frontmatter serialization joins the list into
+// `provenance.derived_from`; the changelog entry counts and lists the hashes.
+function winnerLineageHashes(cluster) {
+  return cluster.variants.filter((v) => v.hash !== cluster.winner.hash).map((v) => v.hash);
 }
 
 // The stamped SKILL.md `--apply` stores for a winner. Skill packages keep their
@@ -1152,31 +1151,22 @@ async function extractArchiveToTemp(archivePath) {
   return tmp;
 }
 
-// readFile that resolves to null for a missing path instead of throwing.
-const readTextOrNull = async (p) => {
-  try {
-    return await readFile(p, "utf8");
-  } catch {
-    return null;
-  }
-};
-
-// Copy one winner's bundled assets next to its stamped SKILL.md and return the
-// author changelog the winner's package carries (ADR-0012 preamble; null when
-// it has none — bare files and prompts never do). Folders copy straight out of
-// the source; archives are unpacked to temp first, the package root being the
-// skill member's directory.
-async function copyWinnerAssets(root, winner, destDir) {
+// Stage one winner's files into its store directory: copy the bundled assets
+// next to the stamped SKILL.md and return the author changelog the winner's
+// package carries (ADR-0012 preamble; null when it has none — bare files and
+// prompts never do). Folders copy straight out of the source; archives are
+// unpacked to temp first, the package root being the skill member's directory.
+async function stageWinnerFiles(root, winner, destDir) {
   if (winner.packaging === "folder") {
     await copyAssets(await packageAssetFiles(join(root, winner.relPath)), destDir);
-    return await readTextOrNull(join(root, winner.relPath, "CHANGELOG.md"));
+    return await readAuthorChangelog(join(root, winner.relPath));
   }
   if (winner.packaging === "archive" && winner.skillFile) {
     const tmp = await extractArchiveToTemp(join(root, winner.relPath));
     try {
       const pkgDir = join(tmp, dirname(winner.skillFile));
       await copyAssets(await packageAssetFiles(pkgDir), destDir);
-      return await readTextOrNull(join(pkgDir, "CHANGELOG.md"));
+      return await readAuthorChangelog(pkgDir);
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }
@@ -1236,9 +1226,10 @@ async function applyClusters(root, store, clusters, candidates) {
     await mkdir(destDir, { recursive: true });
     // The lineage is decided once and shared by the SKILL.md stamps and the
     // changelog entry — the two cannot disagree.
-    const lineage = winnerLineage(cluster);
-    await writeFile(join(destDir, "SKILL.md"), storedSkillText(cluster.winner, cluster, ctx, lineage), "utf8");
-    const authorChangelog = await copyWinnerAssets(root, cluster.winner, destDir);
+    const lineage = winnerLineageHashes(cluster);
+    const derivedFrom = lineage.length ? lineage.join(", ") : null;
+    await writeFile(join(destDir, "SKILL.md"), storedSkillText(cluster.winner, cluster, ctx, derivedFrom), "utf8");
+    const authorChangelog = await stageWinnerFiles(root, cluster.winner, destDir);
     await writeFile(
       join(destDir, "CHANGELOG.md"),
       renderChangelogFile({
@@ -1249,7 +1240,7 @@ async function applyClusters(root, store, clusters, candidates) {
             version: "1.0.0", // only new identities are ever stored
             date: ctx.imported,
             from: ctx.from,
-            supersededHashes: lineage ? lineage.split(", ") : [],
+            supersededHashes: lineage,
           }),
         ],
       }),
