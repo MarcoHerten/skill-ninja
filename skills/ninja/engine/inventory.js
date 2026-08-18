@@ -37,10 +37,52 @@ export function inventoryPath(home = homedir()) {
 /**
  * Parse YAML-ish frontmatter at the top of a SKILL.md (delimited by `---`).
  * Minimal: top-level `key: value` pairs plus a single nested `provenance:`
- * object (2-space-indented children). Unknown keys are kept in the returned
- * object (the `name` field is used for skill naming). Returns {} when there is
- * no parseable frontmatter. Never throws.
+ * object (2-space-indented children), and YAML block scalars (`description:
+ * >-` / `|` with chomping/indent indicators) — the style every longer
+ * agent-activation description is written in. Unknown keys are kept in the
+ * returned object (the `name` field is used for skill naming). Returns {} when
+ * there is no parseable frontmatter. Never throws.
  */
+// Block scalar headers: `>`, `|`, plus optional chomping (`-`/`+`) and explicit
+// indentation indicators (`|2`, `>-2`, `>2-`). A plain scalar can never start
+// with `>` or `|` unquoted, so this match is unambiguous.
+const BLOCK_HEADER = /^([>|])[0-9+-]*$/;
+
+/**
+ * Read the indented content lines of a block scalar starting after
+ * `lines[keyIdx]` (the `key: >-` header at indentation `keyIndent`) and return
+ * the value plus the index of the first unconsumed line.
+ *
+ * Both styles collapse to ONE line (all whitespace runs become single spaces):
+ * every field this parser models is one-line metadata — descriptions are the
+ * catalog's one-liners (cat.js) and are re-serialized as quoted plain scalars
+ * by `add`'s stamping — so the folded/literal distinction and chomping
+ * indicators never change a stored value. The line break itself is preserved
+ * as a space, which is YAML folding for the common all-nonempty-lines case.
+ */
+function readBlockScalar(lines, keyIdx, keyIndent) {
+  const content = [];
+  let i = keyIdx + 1;
+  for (; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim() === "") {
+      content.push("");
+      continue;
+    }
+    const indent = line.length - line.trimStart().length;
+    if (indent <= keyIndent) break;
+    content.push(line);
+  }
+  // Blank lines before the first content line and after the last belong to the
+  // surrounding node, not the block.
+  while (content.length && content[0] === "") content.shift();
+  while (content.length && content[content.length - 1] === "") content.pop();
+  if (content.length === 0) return { value: null, next: i };
+  const blockIndent = content[0].length - content[0].trimStart().length;
+  const value = content.map((l) => l.slice(blockIndent)).join(" ").replace(/\s+/g, " ").trim();
+  return { value: value === "" ? null : value, next: i };
+}
+
 export function parseFrontmatter(text) {
   const result = {};
   if (typeof text !== "string" || !text.startsWith("---")) return result;
@@ -67,14 +109,28 @@ export function parseFrontmatter(text) {
     const key = m[1];
     const val = m[2];
 
+    // Block scalar: the indented lines below the header are the value.
+    if (BLOCK_HEADER.test(val.trim())) {
+      const block = readBlockScalar(fm, i, line.length - line.trimStart().length);
+      result[key] = block.value;
+      i = block.next;
+      continue;
+    }
+
     // Nested object: collect following indented `key: value` lines.
     if (val.trim() === "" && fm[i + 1] !== undefined && /^\s{1,}\S/.test(fm[i + 1])) {
       const obj = {};
       i += 1;
       while (i < fm.length && /^\s{2,}\S/.test(fm[i])) {
         const sub = fm[i].match(/^\s+([A-Za-z][\w-]*)\s*:\s*(.*)$/);
-        if (sub) obj[sub[1]] = coerce(sub[2]);
-        i += 1;
+        if (sub && BLOCK_HEADER.test(sub[2].trim())) {
+          const nested = readBlockScalar(fm, i, fm[i].length - fm[i].trimStart().length);
+          obj[sub[1]] = nested.value;
+          i = nested.next;
+        } else {
+          if (sub) obj[sub[1]] = coerce(sub[2]);
+          i += 1;
+        }
       }
       result[key] = obj;
       continue;

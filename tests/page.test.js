@@ -207,6 +207,59 @@ test("page shows version, provenance, tier badges, and broken symlinks distinctl
   }
 });
 
+// The readability pass: skills render as collapsible cards — the summary
+// carries name/badges plus the (CSS-clamped) description, the locations expand
+// on click. Pure HTML/CSS, no scripts (ADR-0011); the full description stays
+// in the markup, clamping never truncates the data.
+test("page renders collapsible skill cards: clamped description in the summary, locations in the body", async () => {
+  const sb = await createSandbox();
+  try {
+    const longDescription = "Writes LinkedIn posts. " + "Trigger words repeat and repeat ".repeat(10);
+    await plantSkill(sb.home, ".claude/skills/aphrodite", {
+      frontmatter: { name: "aphrodite", category: "Marketing & Social", description: longDescription },
+      body: "# Aphrodite body\n",
+    });
+    await plantSkill(sb.home, ".claude/skills/bare", {
+      frontmatter: { name: "bare", category: "Marketing & Social" },
+      body: "# Bare body\n",
+    });
+
+    const { exitCode } = await seedAndPage(sb);
+    assert.equal(exitCode, 0);
+    const html = await readPage(sb.home);
+
+    // Collapsible card structure — the no-script mechanism (ADR-0011).
+    assert.ok(html.includes('<details class="skill">'), `expected collapsible skill cards`);
+    assert.ok(html.includes("<summary>"));
+    assert.ok(!html.includes("<script"));
+
+    // The summary carries the h3 and the description, clamped by CSS only.
+    assert.ok(html.includes("-webkit-line-clamp"), `expected the clamp CSS`);
+    const cardIdx = html.indexOf('<details class="skill">');
+    const card = html.slice(cardIdx, html.indexOf("</details>", cardIdx));
+    const summary = card.slice(0, card.indexOf("</summary>"));
+    assert.ok(summary.includes("<h3>aphrodite</h3>"), `expected the name inside the summary`);
+    assert.ok(summary.includes('class="desc"'), `expected the description inside the summary`);
+    assert.ok(
+      summary.includes("Trigger words repeat"),
+      `the full description stays in the markup (clamp is visual only)`,
+    );
+
+    // Locations live in the details body, after the summary.
+    assert.ok(
+      card.indexOf("</summary>") < card.indexOf('ul class="locations"'),
+      `locations must expand inside the card`,
+    );
+
+    // A skill without a description renders no desc paragraph.
+    const bareIdx = html.indexOf("<h3>bare</h3>");
+    const bareCard = html.slice(bareIdx, html.indexOf("</details>", bareIdx));
+    assert.ok(!bareCard.includes('class="desc"'), `no empty desc paragraph for bare`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
 // Slice E — regeneration model: every invocation regenerates the file wholesale
 // (no watcher); after a landscape change + re-init, the page shows fresh data.
 test("page is regenerated on every call (overwritten with fresh inventory data)", async () => {

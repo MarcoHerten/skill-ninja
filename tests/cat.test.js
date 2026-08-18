@@ -70,6 +70,51 @@ test("init captures category and description from frontmatter, null when absent"
   }
 });
 
+// Block-scalar descriptions (`description: >-` …) are the style longer
+// agent-activation texts are written in — init must unfold them into the
+// one-line value the catalog shows, never store the `>-` literal.
+test("init unfolds YAML block-scalar descriptions (>- / > / |) into one-line values", async () => {
+  const sb = await createSandbox();
+  try {
+    const dir = join(sb.home, ".claude/skills");
+    const plantRaw = async (name, frontmatter) => {
+      await mkdir(join(dir, name), { recursive: true });
+      await writeFile(
+        join(dir, name, "SKILL.md"),
+        `---\n${frontmatter}\n---\n\n# ${name}\n`,
+        "utf8",
+      );
+    };
+    await plantRaw(
+      "folded",
+      "name: folded\ndescription: >-\n  Writes posts from a topic\n  across several lines.\ncategory: Content & Writing\nversion: 1.4.0",
+    );
+    await plantRaw(
+      "literal",
+      "name: literal\ncategory: Content & Writing\ndescription: |-\n  Edits documents\n  carefully.",
+    );
+    await plantRaw("clip", "name: clip\ndescription: >\n  Folds to one line.");
+    await plantRaw("empty-block", "name: empty-block\ndescription: >-");
+
+    await runCli(sb.home, ["init"]);
+    const cache = await readInventory(sb.home);
+    const byName = Object.fromEntries(cache.skills.map((s) => [s.name, s]));
+    assert.equal(byName.folded.description, "Writes posts from a topic across several lines.");
+    assert.equal(byName.folded.category, "Content & Writing", "the key after the block must still parse");
+    assert.equal(byName.folded.version, "1.4.0");
+    assert.equal(byName.literal.description, "Edits documents carefully.");
+    assert.equal(byName.clip.description, "Folds to one line.");
+    assert.equal(byName["empty-block"].description, null);
+
+    const { stdout, exitCode } = await runCli(sb.home, ["cat", "content"]);
+    assert.equal(exitCode, 0);
+    assert.match(stdout, /folded — Writes posts from a topic across several lines\./);
+    assert.match(stdout, /literal — Edits documents carefully\./);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
 // --- Slice B: the catalog view ------------------------------------------------
 
 test("cat prints the landscape grouped by category with descriptions, tier badges, and counts", async () => {
@@ -200,6 +245,57 @@ test("cat <term> filters to matching categories (case-insensitive substring) and
     assert.equal(none.exitCode, 0);
     assert.match(none.stdout, /No category matching 'nonexistent'/);
     assert.match(none.stdout, /Marketing & Social/); // the available categories are listed
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Agent-activation descriptions run to hundreds of characters — the catalog
+// shows a one-liner: cut at a sentence boundary when one fits, else at a word
+// with an ellipsis. The full text stays in the SKILL.md and on the page.
+test("cat truncates long descriptions at a sentence boundary, or at a word with an ellipsis", async () => {
+  const sb = await createSandbox();
+  try {
+    const withSentence = "Writes LinkedIn posts. " + "Trigger words repeat and repeat ".repeat(8);
+    const noSentence = "word ".repeat(60); // no sentence boundary within the limit
+    await plantSkill(sb.home, ".claude/skills/two-sentences", {
+      frontmatter: { name: "two-sentences", category: "Marketing & Social", description: withSentence },
+    });
+    await plantSkill(sb.home, ".claude/skills/no-sentence", {
+      frontmatter: { name: "no-sentence", category: "Marketing & Social", description: noSentence },
+    });
+    await runCli(sb.home, ["init"]);
+
+    const { stdout, exitCode } = await runCli(sb.home, ["cat", "marketing"]);
+    assert.equal(exitCode, 0);
+    // First sentence fits -> shown whole with no ellipsis; the rest is cut.
+    assert.match(stdout, /two-sentences — Writes LinkedIn posts\.$/m);
+    assert.ok(!stdout.includes("Trigger words repeat"));
+    // No sentence boundary -> word cut plus ellipsis, still one line per entry.
+    const line = stdout.split("\n").find((l) => l.includes("no-sentence"));
+    assert.ok(line, `expected a no-sentence entry`);
+    assert.match(line, /no-sentence — \S.*\S …$/);
+    assert.ok(line.length <= "  no-sentence — ".length + 102, `line stays one-liner length: ${line}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+test("cat lists skills alphabetically within a category section", async () => {
+  const sb = await createSandbox();
+  try {
+    // Planted out of order on purpose — scan order must not leak into the view.
+    for (const n of ["zeta", "alpha", "mid"]) {
+      await plantSkill(sb.home, `.claude/skills/${n}`, {
+        frontmatter: { name: n, category: "Meta & Agent Tooling", description: `${n} does things.` },
+      });
+    }
+    await runCli(sb.home, ["init"]);
+    const { stdout, exitCode } = await runCli(sb.home, ["cat"]);
+    assert.equal(exitCode, 0);
+    const order = ["alpha —", "mid —", "zeta —"].map((s) => stdout.indexOf(s));
+    assert.ok(order.every((i) => i !== -1), `missing an entry, got:\n${stdout}`);
+    assert.ok(order[0] < order[1] && order[1] < order[2], `entries must be alphabetical, got:\n${stdout}`);
   } finally {
     await sb.cleanup();
   }

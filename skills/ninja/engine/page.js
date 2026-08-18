@@ -83,6 +83,9 @@ function renderSkill(group, store) {
     tags.push(`<span class="tag tag-duplicate">[duplicate — same content, other name]</span>`);
   }
 
+  // The full description stays in the markup (findable, copyable); CSS clamps
+  // it to two lines in the collapsed summary and shows it fully once expanded
+  // — no scripts, no truncation of the data (ADR-0011 self-contained rule).
   const description = groupDescription(group.occurrences);
   const descriptionHtml = description
     ? `        <p class="desc">${escapeHtml(description)}</p>\n`
@@ -94,7 +97,7 @@ function renderSkill(group, store) {
         ? ` <span class="arrow">→</span> <code class="path">${escapeHtml(occ.resolved)}</code>`
         : "";
     return (
-      `        <li class="location">` +
+      `          <li class="location">` +
       `<div class="loc-line"><span class="root">${escapeHtml(scanRootLabel(occ.scanRoot))}</span>` +
       ` — <code class="path">${escapeHtml(occ.dir)}</code>${link}</div>` +
       `<div class="loc-meta">${escapeHtml(versionLine(occ))} | provenance: ${escapeHtml(provenanceSummary(occ))}</div>` +
@@ -103,11 +106,13 @@ function renderSkill(group, store) {
   });
 
   return (
-    `      <article class="skill">\n` +
-    `        <h3>${escapeHtml(group.name)}${tierBadge}${tags.length ? " " + tags.join(" ") : ""}</h3>\n` +
+    `      <details class="skill">\n` +
+    `        <summary>\n` +
+    `          <h3>${escapeHtml(group.name)}${tierBadge}${tags.length ? " " + tags.join(" ") : ""}</h3>\n` +
     descriptionHtml +
+    `        </summary>\n` +
     `        <ul class="locations">\n${locations.join("")}        </ul>\n` +
-    `      </article>\n`
+    `      </details>\n`
   );
 }
 
@@ -169,19 +174,29 @@ export function renderStatusPage(inventory, config) {
   }
   .wrap { max-width: 920px; margin: 0 auto; padding: 32px 20px 48px; }
   h1 { margin: 0 0 4px; font-size: 26px; }
-  h2 { font-size: 19px; margin: 34px 0 12px; }
+  h2 { font-size: 19px; margin: 30px 0 10px; padding: 10px 0 8px;
+       position: sticky; top: 0; z-index: 2; background: #f4f6f8;
+       border-bottom: 1px solid #e3e8ee; }
   .meta { margin: 2px 0; color: #5b6572; font-size: 13.5px; }
   .summary { margin: 14px 0 0; padding: 12px 16px; background: #eef2f6; border-radius: 10px; font-size: 15px; }
-  .skill { background: #fff; border: 1px solid #e3e8ee; border-radius: 12px; padding: 14px 18px; margin: 12px 0; }
-  .skill h3 { margin: 0; font-size: 16.5px; }
-  .desc { margin: 6px 0 0; color: #3d4754; font-size: 14px; }
+  /* Collapsible skill cards: the summary carries name + badges + the clamped
+     description, the locations expand on click (pure HTML, no scripts). */
+  details.skill { background: #fff; border: 1px solid #e3e8ee; border-radius: 12px; padding: 0 18px; margin: 10px 0; }
+  details.skill > summary { cursor: pointer; list-style: none; padding: 13px 0 11px; }
+  details.skill > summary::-webkit-details-marker { display: none; }
+  details.skill > summary::before { content: "\\25B8"; color: #98a2b0; display: inline-block; width: 1.2em; }
+  details.skill[open] > summary::before { content: "\\25BE"; }
+  details.skill > summary h3 { display: inline; margin: 0; font-size: 16.5px; }
+  .desc { margin: 5px 0 0 1.2em; color: #3d4754; font-size: 14px;
+          display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  details.skill[open] .desc { display: block; overflow: visible; }
   .tag { font-size: 12.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
   .tag-spread { color: #10603e; background: #e2f5ea; }
   .tag-duplicate { color: #8a4b08; background: #fdf0dd; }
   .tag-broken { color: #a11c1c; background: #fbe4e4; }
   .tier { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
           color: #47525f; background: #e8ecf1; padding: 2px 8px; border-radius: 999px; }
-  ul.locations { list-style: none; margin: 10px 0 0; padding: 0; }
+  ul.locations { list-style: none; margin: 4px 0 0; padding: 2px 0 12px 1.2em; }
   li.location { padding: 8px 0; border-top: 1px dashed #e6eaf0; }
   .loc-line { font-size: 14.5px; }
   .root { font-weight: 600; }

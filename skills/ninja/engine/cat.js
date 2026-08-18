@@ -74,6 +74,22 @@ function groupCategory(group) {
   return firstStringValue(group.occurrences, "category");
 }
 
+// The catalog's one-liner per skill: a long description (agent-activation
+// texts run to hundreds of characters) is cut to `max` characters — at the
+// last sentence boundary within the limit when one exists, else at the last
+// word, marked with an ellipsis only in the word-cut case (a complete sentence
+// needs no marker). The full text stays in the SKILL.md and on the page.
+function oneLineDescription(description, max = 100) {
+  const text = String(description).replace(/\s+/g, " ").trim();
+  if (text.length <= max) return text;
+  const head = text.slice(0, max);
+  let end = Math.max(head.lastIndexOf(". "), head.lastIndexOf("! "), head.lastIndexOf("? "));
+  if (end === -1 && /[.!?]$/.test(head)) end = head.length - 1;
+  if (end !== -1) return text.slice(0, end + 1);
+  const space = head.lastIndexOf(" ");
+  return (space === -1 ? head : text.slice(0, space)).trimEnd() + " …";
+}
+
 // A group's description: the catalog's one-liner per skill.
 export function groupDescription(occurrences) {
   return firstStringValue(occurrences, "description");
@@ -91,7 +107,10 @@ export function groupTier(occurrences, store) {
 /**
  * Group name-groups (status.js `groupSkills` output) into category sections.
  * Order: the vocabulary's order first (only categories that have skills), then
- * remaining categories alphabetically, "Uncategorized" always last.
+ * remaining categories alphabetically, "Uncategorized" always last. Skills
+ * within a section sort by name — scan order carries no meaning, a predictable
+ * alphabetical list is what makes a 100+ skill catalog scannable (the page
+ * regroups with this same function, so both views agree).
  *
  * @param {Array<object>} groups Output of `groupSkills`.
  * @param {string[]} [vocabulary] Category order (defaults: DEFAULT_CATEGORIES).
@@ -103,6 +122,9 @@ export function groupByCategory(groups, vocabulary = DEFAULT_CATEGORIES) {
     const category = groupCategory(g) ?? UNCATEGORIZED;
     if (!sections.has(category)) sections.set(category, []);
     sections.get(category).push(g);
+  }
+  for (const skills of sections.values()) {
+    skills.sort((a, b) => a.name.localeCompare(b.name));
   }
   const vocabRank = (cat) => {
     const idx = vocabulary.indexOf(cat);
@@ -176,7 +198,7 @@ export function renderCatalog(inventory, config, filter = null) {
     for (const g of section.skills) {
       const tier = groupTier(g.occurrences, store);
       const badge = tier ? ` [${tier}]` : "";
-      const description = groupDescription(g.occurrences) ?? "(no description)";
+      const description = oneLineDescription(groupDescription(g.occurrences) ?? "(no description)");
       lines.push(`  ${g.name}${badge} — ${description}`);
     }
   }
