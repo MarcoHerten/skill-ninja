@@ -7,7 +7,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
@@ -165,6 +165,109 @@ test("init does not seed a store directory that already exists", async () => {
     assert.equal(await readFile(join(store, "notes.txt"), "utf8"), "hands off\n", "existing files untouched");
     // `git init` on a .git-less directory is the one allowed modification.
     assert.ok(existsSync(join(store, ".git")), "git init still runs when there is no .git");
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// `init --store <name>` (ADR-0016): a bare name (no path separators) resolves
+// under $HOME, is persisted as `store`, and the store it creates is seeded
+// like the default.
+test("init --store <name> resolves a bare name under $HOME and persists it", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    await plantSkill(sb.home, ".claude/skills/boot-d");
+    const { stdout, exitCode } = await runCli(sb.home, ["init", "--store", "my-skills"]);
+    assert.equal(exitCode, 0, `stdout:\n${stdout}`);
+
+    const cfg = await readJson(join(sb.home, ".skill-ninja", "config.json"));
+    assert.equal(cfg.store, join(sb.home, "my-skills"), `bare name resolved under $HOME, got:\n${cfg.store}`);
+    assert.ok(existsSync(join(sb.home, "my-skills", ".git")), "store created + git init'd");
+    const readme = await readFile(join(sb.home, "my-skills", "README.md"), "utf8");
+    assert.match(readme, /# my-skills/, "seed README interpolates the chosen name");
+    assert.deepEqual(gitSubjects(join(sb.home, "my-skills")), ["init store"]);
+    // No store at the default location — the flag decided.
+    assert.ok(!existsSync(join(sb.home, "skill-ninja-store")), "default location not created");
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// `--store ~/path` and `--store /abs/path` are filesystem paths, ~-expanded or
+// taken as given (ADR-0016).
+test("init --store accepts a ~/… path and an absolute path", async () => {
+  const tilde = await createSandbox({ config: null });
+  try {
+    await plantSkill(tilde.home, ".claude/skills/boot-e");
+    const { stdout, exitCode } = await runCli(tilde.home, ["init", "--store", "~/code/skill-vault"]);
+    assert.equal(exitCode, 0, `stdout:\n${stdout}`);
+    const cfg = await readJson(join(tilde.home, ".skill-ninja", "config.json"));
+    assert.equal(cfg.store, join(tilde.home, "code", "skill-vault"), `~/… expanded, got:\n${cfg.store}`);
+    assert.ok(existsSync(join(tilde.home, "code", "skill-vault", "README.md")), "fresh store seeded");
+  } finally {
+    await tilde.cleanup();
+  }
+
+  // An absolute path stays absolute as given.
+  const sb = await createSandbox({ config: null });
+  try {
+    await plantSkill(sb.home, ".claude/skills/boot-f");
+    const abs = join(sb.home, "elsewhere", "abs-store");
+    const { stdout, exitCode } = await runCli(sb.home, ["init", "--store", abs]);
+    assert.equal(exitCode, 0, `stdout:\n${stdout}`);
+    const cfg = await readJson(join(sb.home, ".skill-ninja", "config.json"));
+    assert.equal(cfg.store, abs, `absolute path persisted as given, got:\n${cfg.store}`);
+    assert.ok(existsSync(join(abs, "README.md")), "fresh store seeded");
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// An empty --store value (or a missing one, or any unknown argument) is a
+// usage error — exit 2 (ADR-0016).
+test("init --store with an empty or missing value is a usage error (exit 2)", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    for (const args of [["init", "--store", ""], ["init", "--store"], ["init", "--store="], ["init", "--bogus"]]) {
+      const { exitCode } = await runCli(sb.home, args);
+      assert.equal(exitCode, 2, `${args.join(" ")} should be a usage error`);
+    }
+    // Nothing was created or written by the failed runs.
+    assert.ok(!existsSync(join(sb.home, ".skill-ninja", "config.json")), "no config seeded");
+    assert.ok(!existsSync(join(sb.home, "skill-ninja-store")), "no store created");
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Pointing --store away from a previous store that still exists moves nothing:
+// the old directory stays byte-for-byte and the report says so in plain
+// language (ADR-0016). When the previous store does not exist, there is
+// nothing to report.
+test("init --store switching away reports the previous store untouched", async () => {
+  const sb = await createSandbox({
+    config: { store: "~/.skill-ninja/store", agents: ["claude"], vaults: [], projects: [] },
+  });
+  try {
+    // A previous store with real content still on disk.
+    await plantSkill(sb.home, ".skill-ninja/store/old-skill", { frontmatter: { name: "old-skill" } });
+
+    const { stdout, exitCode } = await runCli(sb.home, ["init", "--store", "new-vault"]);
+    assert.equal(exitCode, 0, `stdout:\n${stdout}`);
+
+    // The config now points at the new store; the old one is untouched.
+    const cfg = await readJson(join(sb.home, ".skill-ninja", "config.json"));
+    assert.equal(cfg.store, join(sb.home, "new-vault"));
+    const oldSkill = join(sb.home, ".skill-ninja", "store", "old-skill", "SKILL.md");
+    assert.ok(existsSync(oldSkill), "previous store content untouched");
+    assert.match(stdout, /Previous store left untouched/, "plain-language switch report");
+    assert.match(stdout, /\.skill-ninja\/store/, "the report names the previous path");
+
+    // A previous store that no longer exists on disk is not reported.
+    await rm(join(sb.home, "new-vault"), { recursive: true, force: true });
+    const second = await runCli(sb.home, ["init", "--store", "fourth-place"]);
+    assert.equal(second.exitCode, 0, `stdout:\n${second.stdout}`);
+    assert.doesNotMatch(second.stdout, /Previous store left untouched/, "no note for a vanished previous store");
   } finally {
     await sb.cleanup();
   }

@@ -6,11 +6,12 @@
 // dispatches `ninja <command>` to a command handler.
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
+import { existsSync } from "node:fs";
 
 import { configPath, loadConfig } from "./config.js";
 import { agentRoot } from "./agents.js";
 import { buildInventory, writeInventory, inventoryPath } from "./inventory.js";
-import { bootstrapConfig, seedConfig, ensureStore } from "./discover.js";
+import { bootstrapConfig, seedConfig, ensureStore, resolveStoreArg } from "./discover.js";
 import { renderStatus } from "./status.js";
 import { pageCommand } from "./page.js";
 import { catCommand, resolveVocabulary } from "./cat.js";
@@ -28,7 +29,7 @@ import { collectionCommand } from "./collection.js";
 // interface. (An entry here with no handler would report "not implemented yet"
 // rather than "unknown command" — a defensive guard for future surfaces.)
 const COMMANDS = {
-  init: "Analyze the machine: discover agent roots, vaults, and skills.",
+  init: "Analyze the machine: discover agent roots, vaults, and skills (--store <name|path> selects the canonical store).",
   status: "One inventory view of every skill across agents and vaults.",
   cat: "Browse skills as a catalog grouped by category; assign stamps the stored copy.",
   page: "Render the cached inventory as a self-contained static HTML status page.",
@@ -146,10 +147,60 @@ function printInitSummary(inventory, cachePath) {
 // config.json, creates the canonical store (+ git init), then scans. Re-running
 // re-discovers and re-seeds (how config gets edited). Phases: discover → seed →
 // scan.
-async function initCommand() {
+
+// `init` accepts exactly one option: `--store <name|path>` (ADR-0016). Any
+// other argument — or an empty --store value — is a usage error (exit 2).
+function parseInitArgs(argv) {
+  const opts = { store: null };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--store") {
+      const value = argv[++i];
+      if (typeof value !== "string" || value === "" || value.startsWith("--")) {
+        return { error: "--store needs a value: a bare name or a path (e.g. skill-vault, ~/code/skill-store)" };
+      }
+      opts.store = value;
+    } else if (a.startsWith("--store=")) {
+      const value = a.slice("--store=".length);
+      if (value === "") {
+        return { error: "--store needs a value: a bare name or a path (e.g. skill-vault, ~/code/skill-store)" };
+      }
+      opts.store = value;
+    } else {
+      return { error: `unknown init argument: ${a}` };
+    }
+  }
+  return opts;
+}
+
+// The currently configured store (expanded), or null when no config exists —
+// the `init --store` switch report only fires against a real previous store.
+async function configuredStore(home) {
+  try {
+    return (await loadConfig(home)).store;
+  } catch {
+    return null;
+  }
+}
+
+async function initCommand(args) {
   const home = homedir();
+  const opts = parseInitArgs(args);
+  if (opts.error) {
+    process.stderr.write(`${opts.error}\nTry: ninja init [--store <name|path>]\n`);
+    return 2;
+  }
+  // An explicit --store overrides the configured store for this run and is
+  // persisted as `store` in the seeded config (ADR-0016); without the flag the
+  // no-clobber rule applies unchanged.
+  let storeOverride = null;
+  let previousStore = null;
+  if (opts.store !== null) {
+    storeOverride = resolveStoreArg(opts.store, home);
+    previousStore = await configuredStore(home);
+  }
   // DISCOVER + SEED: build/refresh the config from detection and write it.
-  const config = await bootstrapConfig(home);
+  const config = await bootstrapConfig(home, storeOverride);
   await seedConfig(home, config);
   // Re-read the seeded config so `~` paths are expanded into absolute ones.
   const resolved = await loadConfig(home);
@@ -159,6 +210,13 @@ async function initCommand() {
   const inventory = await buildInventory(home);
   const cachePath = await writeInventory(inventory, home);
   printInitSummary(inventory, cachePath);
+  // Switch report (ADR-0016): pointing --store away from a previous store that
+  // still exists leaves that store untouched — nothing is ever moved.
+  if (previousStore && previousStore !== resolved.store && existsSync(previousStore)) {
+    process.stdout.write(
+      `\nPrevious store left untouched at ${previousStore} — its skills, links, and history remain there; nothing was moved or copied.\n`,
+    );
+  }
   return 0;
 }
 
@@ -225,7 +283,7 @@ async function dispatch(argv) {
     return configCommand(rest);
   }
   if (command === "init") {
-    return initCommand();
+    return initCommand(rest);
   }
   if (command === "status") {
     return statusCommand(rest);

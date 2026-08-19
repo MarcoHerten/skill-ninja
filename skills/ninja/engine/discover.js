@@ -76,6 +76,22 @@ export async function seedConfig(home, config) {
   return path;
 }
 
+/**
+ * Resolve an `init --store` value (ADR-0016): a value with no path separators
+ * is a bare name resolved under $HOME (`skill-vault` -> `~/skill-vault`); any
+ * other value is a filesystem path — `~` expanded against $HOME, absolute or
+ * relative as given.
+ * @param {string} value
+ * @param {string} home
+ * @returns {string} The resolved store path.
+ */
+export function resolveStoreArg(value, home) {
+  if (!value.includes("/") && !value.includes("\\")) return join(home, value);
+  if (value === "~") return home;
+  if (value.startsWith("~/")) return join(home, value.slice(2));
+  return value;
+}
+
 // The seed README every freshly created store receives (ADR-0016): a fixed
 // template — only the store name is interpolated (the engine never drafts
 // editorial prose). One line what this repo is, a keep-it-private hint.
@@ -124,12 +140,15 @@ export async function ensureStore(store) {
  * Discovery is authoritative on a fresh machine; once a config exists, its
  * choices are preserved so the user's includes/excludes stick (re-running does
  * not clobber hand edits). Agents and vaults fall back to detection when the
- * existing config has none; projects are user-only (none detected).
+ * existing config has none; projects are user-only (none detected). An
+ * explicit `init --store` (ADR-0016) overrides the store for this run and is
+ * what gets persisted.
  *
  * @param {string} home
+ * @param {string|null} [storeOverride] Resolved store path from `--store`, or null.
  * @returns {Promise<{store:string, agents:string[], vaults:string[], projects:string[]}>}
  */
-export async function bootstrapConfig(home) {
+export async function bootstrapConfig(home, storeOverride = null) {
   const discoveredAgents = discoverAgents(home);
   const discoveredVaults = await discoverVaults(home);
 
@@ -143,7 +162,8 @@ export async function bootstrapConfig(home) {
   const has = (arr) => Array.isArray(arr) && arr.length > 0;
   return {
     store:
-      typeof existing.store === "string" && existing.store ? existing.store : defaultStore(home),
+      storeOverride ??
+      (typeof existing.store === "string" && existing.store ? existing.store : defaultStore(home)),
     agents: has(existing.agents) ? existing.agents : discoveredAgents,
     vaults: has(existing.vaults) ? existing.vaults : discoveredVaults,
     projects: Array.isArray(existing.projects) ? existing.projects : [],
