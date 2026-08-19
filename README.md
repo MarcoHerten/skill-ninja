@@ -48,6 +48,12 @@ This installs Skill Ninja as a skill into your agent(s) — the same distributio
 
 `init` needs no preparation: it discovers which coding agents are on your machine, finds every skill across agent roots, Obsidian vaults, and project directories, and bootstraps the config (`~/.skill-ninja/config.json`) plus your **canonical store** — a visible, git-initialized repository at `~/skill-ninja-store`, seeded with a short README and an initial commit so it is presentable from the first push. On first run your agent proposes the default name and asks whether you'd like your own (a bare name like `my-skills` or a path like `~/code/skill-store`, passed as `init --store`); re-running `init` never renames or moves an existing store. `status` then gives you the one inventory view — duplicates, broken symlinks, versions, provenance. Re-run either whenever the landscape changes; filters like `/ninja status --duplicates` narrow the view. Prefer a browser? `/ninja page` writes the same view as a self-contained HTML file and tells you where.
 
+**Quick tip — keep the status page findable:** it lives at `~/.skill-ninja/status.html`, and `page` regenerates that same file on every run. A symlink somewhere visible (e.g. your Desktop) therefore never goes stale:
+
+```bash
+ln -s ~/.skill-ninja/status.html ~/Desktop/skill-ninja-status.html
+```
+
 ### 3. Clean up: `doctor`
 
 ```
