@@ -22,6 +22,7 @@ Skill Ninja runs **inside your coding agent**, on top of the skills [skills.sh](
 - **`/ninja on` / `/ninja off` / `/ninja manual`** *(live, v1.3)* — the **Availability** layer: your lever on the context window. `off` unloads a skill everywhere (Personal: unlink + `availability` stamp; External: a ZCode config disable tracked in a ledger), `manual` keeps it one slash away but never auto-triggered (the description is preserved as `activation_text` and restored on return), `on` re-activates — and doubles as install-on-demand for stored-but-unlinked skills. Uniform selectors (`--category`, `--tier personal`, `--except`), dry run by default, `--apply` executes — [ADR-0014](./docs/adr/0014-availability-layer.md).
 - **`/ninja find`** *(live, v1.3)* — search the inventory by skill name, description, or category.
 - **`/ninja profile`** *(live, v1.3)* — named skill sets per purpose ("the content setup", "the code setup"): `save` a member list, `apply` it in a repo (project-local symlinks, additive on the global baseline), `lift` it again.
+- **`/ninja collection`** *(live, v1.3.1)* — named, personal filters over the inventory ("everything from Nils"): pattern lists in your local config, resolved live by `cat @<name>`, `find @<name>`, the page's dropdown, and `off/manual/on --collection`. Local-only by design — never on the skills, never in this repo ([ADR-0015](./docs/adr/0015-collections-are-config-side.md)).
 - **`/ninja diff`** — shows what changed in a skill since you stored it ("my friend sent v2 — what's new?"), or against the upstream skills.sh source.
 
 Your **personal** skills live in a **local canonical store** — a git repo with an optional **private remote** for versioning. Skills you installed via skills.sh stay owned by skills.sh; Skill Ninja watches over everything.
@@ -101,6 +102,7 @@ The bulk path: the export with the same skill as folder, `.zip`, `.skill`, *and*
 | "This skill triggers constantly but I want it on demand" | `/ninja manual <name>` (invocable by name, never auto-triggered) |
 | "Get this out of my context window entirely" | `/ninja off <name>` (or `off --category "…"` in bulk) |
 | "This repo needs my content-setup skills" | `/ninja profile save content <names…>`, then `profile apply content` in the repo |
+| "Show me Nils's skills as a bundle" | `/ninja collection save nils <names/prefixes…>`, then `cat @nils` |
 | Landscape feels off | `/ninja status`, then `/ninja doctor` |
 | An updated copy of a stored skill shows up | `/ninja diff`, then `/ninja add` |
 
@@ -131,6 +133,7 @@ The update is hash-based — only skills whose content changed are rewritten —
 - **v1.0** ✅ — `init`, `status`, `doctor`, `add` (+ safety check), `diff`
 - **v1.1** ✅ — `ingest` (bulk pipeline for messy skill/prompt directories — [ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)); static HTML status page ([ADR-0011](./docs/adr/0011-static-html-status-page.md))
 - **v1.3** ✅ — availability layer: `on`/`off`/`manual`, `find`, `profile`, inventory v4, the page cockpit ([ADR-0014](./docs/adr/0014-availability-layer.md))
+- **v1.3.1** ✅ — collections: personal config-side filters for `cat`/`find`/page/`--collection` ([ADR-0015](./docs/adr/0015-collections-are-config-side.md))
 
 ## Design principles
 

@@ -1,8 +1,8 @@
 ---
 name: ninja
 description: Manage the skills AI coding agents consume — analyze the machine, inventory every skill across agent roots and vaults, repair the mess, and ingest new skills safely with provenance. Drives a bundled Node engine.
-version: 1.3.0
-updated: 2026-08-18
+version: 1.3.1
+updated: 2026-08-19
 ---
 
 # Skill Ninja
@@ -38,6 +38,7 @@ Because of **tool asymmetry**, Skill Ninja resolves each **agent root** (e.g. `~
 | `/ninja on` / `/ninja off` / `/ninja manual` | `on` / `off` / `manual` | Switch skills' Availability: active everywhere / unloaded everywhere / invocable by name but never auto-triggered. Dry run by default; `--apply` executes. | **Live (v1.3)** |
 | `/ninja find`  | `find`          | Search the cached inventory by skill name, description, or category. | **Live (v1.3)** |
 | `/ninja profile` | `profile`     | Manage skill profiles — named sets applied per project: list \| save \| forget \| apply \| lift. | **Live (v1.3)** |
+| `/ninja collection` | `collection` | Manage personal collections — named, local-only filters: list \| save \| forget. Use with `cat @<name>` / `find @<name>`. | **Live (v1.3.1)** |
 | `/ninja config`| `config show`   | Print the loaded configuration (canonical store, agent roots, vaults, projects). | **Live**      |
 
 ### `/ninja init` (live)
@@ -188,6 +189,18 @@ Named, reusable skill sets applied per project (ADR-0014) — "these skill setup
 - `profile lift <name>` — remove exactly the links the profile owns (only symlinks pointing into the store), in the current project directory.
 
 **This skill layer's job**: when the user describes a per-repo purpose set, propose the member list (from `cat` categories or `find` results), save it, and run `apply` from the repo they name. Remind them availability/profile changes take effect in NEW agent sessions.
+
+### `/ninja collection` (live, v1.3.1)
+
+Named, **personal** filters over the inventory (ADR-0015) — "everything from Nils", "the god-name family". A collection is a name plus patterns (exact skill names or `prefix*` globs, case-insensitive) stored in `~/.skill-ninja/config.json` — local, personal state that never touches the stored skills or this product repo (the deliberate counter-point to ADR-0013's categories-as-stamps: a collection is the owner's view, not data about the skill). Runs `node <SKILL_DIR>/engine/cli.js collection <sub>`:
+
+- `collection save <name> <skill|prefix*> […]` — record the pattern list (an unmatched pattern warns, never errors — collections may reference names that appear later).
+- `collection list [name]` — list collections with live match counts (or one collection's patterns + resolved members).
+- `forget <name>` — remove.
+
+The views resolve patterns **live** against the cached inventory: `cat @<name>` (the bundle, still grouped under its content categories — a filter, not a taxonomy), `find @<name>` (flat tagged list), the page cockpit's collection dropdown, and the availability selectors (`off --collection <name>` switches the whole bundle). An unknown `@name` in a view reads as a plain no-collection message; as a `--collection` selector it is a strict error (a bulk switch must never silently no-op). Collections survive `init` re-seeding; they do not travel with the store.
+
+**This skill layer's job**: when the user names a personal bundle ("all of Nils's"), derive the member patterns (from the inventory — names, prefixes, a shared provenance batch), propose them, and save on approval.
 
 ### `/ninja config` (live)
 
