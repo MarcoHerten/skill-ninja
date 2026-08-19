@@ -10,7 +10,7 @@ import { loadConfig } from "./config.js";
 import { inventoryPath } from "./inventory.js";
 import { groupSkills, groupAvailability, availabilityTag } from "./status.js";
 import { groupByCategory, groupTier, groupDescription, oneLineDescription, resolveVocabulary } from "./cat.js";
-import { configuredCollections, resolveCollectionMembers } from "./collection.js";
+import { readCollections, resolveCollectionMembers } from "./collection.js";
 
 /**
  * Run `ninja find`. Returns the process exit code.
@@ -57,7 +57,7 @@ export async function findCommand(args) {
   let header;
   if (term.startsWith("@")) {
     const cname = term.slice(1);
-    const collections = configuredCollections(config);
+    const collections = await readCollections(config);
     const patterns = collections[cname];
     if (!Array.isArray(patterns)) {
       const present = Object.keys(collections);

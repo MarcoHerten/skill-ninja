@@ -42,7 +42,7 @@ const COMMANDS = {
   manual: "Switch skills Manual: invocable by name, never auto-triggered (dry run; --apply executes).",
   find: "Search the cached inventory by skill name, description, or category.",
   profile: "Manage skill profiles: list | save | forget | apply | lift.",
-  collection: "Manage personal collections (local-only filters): list | save | forget — use with cat @<name>.",
+  collection: "Manage personal collections (filters that travel with the store): list | save | forget — use with cat @<name>.",
   config: "Show Skill Ninja's configuration (try: config show).",
 };
 

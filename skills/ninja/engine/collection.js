@@ -1,9 +1,11 @@
 // `ninja collection` — named, personal filters over the cached inventory
-// (ADR-0015). A Collection is a name plus a list of patterns (exact skill
-// names or `prefix*` globs) stored in ~/.skill-ninja/config.json — LOCAL,
-// PERSONAL state that never touches the product repo or the shared store
-// (the deliberate counter-point to ADR-0013's categories-as-stamps: a
-// collection is the owner's view, not data about the skill).
+// (ADR-0015, amended by ADR-0017). A Collection is a name plus a list of
+// patterns (exact skill names or `prefix*` globs) stored at the canonical
+// store's root (`<store>/collections.json`) — personal state that travels
+// with the store repo: clone on a fresh machine + `init` brings the bundles
+// back. Still the deliberate counter-point to ADR-0013's
+// categories-as-stamps: one file at the store root is the owner's view, never
+// data stamped onto a skill.
 //
 // The views resolve patterns live: `cat @<name>` (bundle under its content
 // categories), `find @<name>`, the page's collection filter, and the
@@ -14,7 +16,8 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { readRawConfig, writeRawConfig } from "./config.js";
+import { readStoreList, writeStoreList, commitStoreList, COLLECTIONS_FILE } from "./storelists.js";
+import { loadConfig } from "./config.js";
 import { groupSkills } from "./status.js";
 
 /**
@@ -51,16 +54,19 @@ export function collectionsForName(name, collections) {
   return out;
 }
 
-// The resolved config's `collections` object (already normalized by
-// config.js's shared name-list rule); {} when none are configured.
-export function configuredCollections(config) {
-  return config?.collections && typeof config.collections === "object" ? config.collections : {};
+/**
+ * The store-side collections map (ADR-0017): read from
+ * `<store>/collections.json`; {} when nothing is saved or no store is
+ * configured. Async — every view loads it once up front.
+ * @param {{store?:string|null}} config Resolved config.
+ * @returns {Promise<object>} The normalized collections map.
+ */
+export async function readCollections(config) {
+  return readStoreList(config?.store ?? null, COLLECTIONS_FILE);
 }
 
-async function loadCollections(home) {
-  const raw = await readRawConfig(home);
-  const collections = raw?.collections && typeof raw.collections === "object" ? raw.collections : {};
-  return { raw, collections };
+async function loadCollections(store) {
+  return readStoreList(store, COLLECTIONS_FILE);
 }
 
 // --- the command ---------------------------------------------------------------
@@ -108,7 +114,7 @@ function listCommand(out, collections, name, inventory) {
   return 0;
 }
 
-async function saveCommand(out, err, home, args, inventory) {
+async function saveCommand(out, err, config, args, inventory) {
   const [name, ...patterns] = args;
   if (!name || patterns.length === 0) {
     err.write("save needs a collection name and at least one skill name or prefix glob.\n");
@@ -133,34 +139,35 @@ async function saveCommand(out, err, home, args, inventory) {
     }
   }
 
-  const { raw, collections } = await loadCollections(home);
+  const collections = await loadCollections(config.store);
   const members = [...new Set(patterns)];
   const existed = Array.isArray(collections[name]);
   collections[name] = members;
-  raw.collections = collections;
-  await writeRawConfig(home, raw);
+  await writeStoreList(config.store, COLLECTIONS_FILE, collections);
+  const committed = commitStoreList(config.store, COLLECTIONS_FILE, `collection save ${name}`);
   out.write(
     `${existed ? "Updated" : "Saved"} collection '${name}' with ${members.length} pattern${members.length === 1 ? "" : "s"}. ` +
       `Filter with: cat @${name}\n`,
   );
+  if (committed) out.write(`Committed to ${config.store} (travels with the store repo).\n`);
   return 0;
 }
 
-async function forgetCommand(out, err, home, args) {
+async function forgetCommand(out, err, config, args) {
   const [name] = args;
   if (!name) {
     err.write("forget needs a collection name.\n");
     err.write("Try: ninja collection forget <name>\n");
     return 2;
   }
-  const { raw, collections } = await loadCollections(home);
+  const collections = await loadCollections(config.store);
   if (!Array.isArray(collections[name])) {
     err.write(`No collection '${name}'.\n`);
     return 2;
   }
   delete collections[name];
-  raw.collections = collections;
-  await writeRawConfig(home, raw);
+  await writeStoreList(config.store, COLLECTIONS_FILE, collections);
+  commitStoreList(config.store, COLLECTIONS_FILE, `collection forget ${name}`);
   out.write(`Forgot collection '${name}'.\n`);
   return 0;
 }
@@ -187,12 +194,28 @@ export async function collectionCommand(args) {
   const home = homedir();
   const inventory = await readInventorySoft(home);
 
+  // The lists live in the store now (ADR-0017) — every subcommand needs the
+  // resolved store path. Without a config, `list` still answers (empty); the
+  // write paths point at `init`.
+  let config;
+  try {
+    config = await loadConfig(home);
+  } catch (e) {
+    if (e && e.code === "ENOENT") config = { store: null };
+    else throw e;
+  }
   if (sub === undefined || sub === "list") {
-    const { collections } = await loadCollections(home);
+    const collections = await loadCollections(config.store);
     return listCommand(out, collections, rest[0], inventory);
   }
-  if (sub === "save") return saveCommand(out, err, home, rest, inventory);
-  if (sub === "forget") return forgetCommand(out, err, home, rest);
+  if (sub === "save" || sub === "forget") {
+    if (!config.store) {
+      err.write("No canonical store configured (collections live in the store — run `ninja init` first).\n");
+      return 2;
+    }
+    if (sub === "save") return saveCommand(out, err, config, rest, inventory);
+    return forgetCommand(out, err, config, rest);
+  }
 
   err.write(`Unknown collection subcommand: ${sub}\n`);
   err.write("Try: ninja collection list [name] | save <name> <skill|prefix*> … | forget <name>\n");

@@ -1,19 +1,29 @@
-// Black-box tests for `ninja collection` (ADR-0015) — named, personal
-// filters over the cached inventory. The data lives in ~/.skill-ninja/
-// config.json (never on skills, never in the product); the views resolve
-// patterns live: `cat @<name>`, `find @<name>`, the page's collection filter,
-// and the availability `--collection` selector. Tests import no engine code
-// (ADR-0001).
+// Black-box tests for `ninja collection` (ADR-0015, amended by ADR-0017) —
+// named, personal filters over the cached inventory. The data lives at the
+// canonical store's root (`<store>/collections.json`) and travels with the
+// store repo; the views resolve patterns live: `cat @<name>`, `find @<name>`,
+// the page's collection filter, and the availability `--collection`
+// selector. Tests import no engine code (ADR-0001).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, symlink } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 
-import { createSandbox, runCli, plantSkill } from "./helpers/harness.js";
+import { createSandbox, runCli, plantSkill, storePath, makeStoreGitRepo } from "./helpers/harness.js";
 
-async function readRawConfig(home) {
-  return JSON.parse(await readFile(join(home, ".skill-ninja", "config.json"), "utf8"));
+// The store-side collections map (the storage since ADR-0017).
+async function readCollectionsFile(home) {
+  return JSON.parse(await readFile(join(storePath(home), "collections.json"), "utf8"));
+}
+
+// The store's commit subjects — reading the resulting repo state through git
+// is part of the black-box contract (ADR-0001: filesystem state).
+function gitSubjects(store) {
+  return execFileSync("git", ["-C", store, "log", "--format=%s"], { encoding: "utf8" })
+    .split(/\r?\n/)
+    .filter(Boolean);
 }
 
 // The standard fixture: two god-named skills in one category, one bystander.
@@ -48,8 +58,8 @@ test("collection save / list / forget round-trip; save warns on unmatched patter
     assert.match(saved.stdout, /Saved collection 'nils' with 3 patterns/);
     assert.match(saved.stdout, /Warning: 'ghost-\*' match no skill/);
 
-    const raw = await readRawConfig(sb.home);
-    assert.deepEqual(raw.collections.nils, ["aphrodite*", "athena-ki-strategie", "ghost-*"]);
+    const raw = await readCollectionsFile(sb.home);
+    assert.deepEqual(raw.nils, ["aphrodite*", "athena-ki-strategie", "ghost-*"]);
 
     const list = await runCli(sb.home, ["collection", "list"]);
     assert.equal(list.exitCode, 0);
@@ -77,21 +87,58 @@ test("collection save / list / forget round-trip; save warns on unmatched patter
 
     const forgot = await runCli(sb.home, ["collection", "forget", "nils"]);
     assert.equal(forgot.exitCode, 0);
-    const after = await readRawConfig(sb.home);
-    assert.equal(after.collections.nils, undefined);
+    const after = await readCollectionsFile(sb.home);
+    assert.equal(after.nils, undefined);
   } finally {
     await sb.cleanup();
   }
 });
 
-test("collections survive init re-seeding (the config carry-forward)", async () => {
+// Storage is store-side (ADR-0017): saves land in <store>/collections.json
+// and as commits in the store repo; a store with no git simply skips the
+// commit. Without a configured store, save points at init.
+test("collection save writes the store file, commits it, and needs a store", async () => {
+  const sb = await createSandbox();
+  try {
+    await plantLandscape(sb.home); // init creates + seeds the store repo
+    const saved = await runCli(sb.home, ["collection", "save", "nils", "aphrodite*"]);
+    assert.equal(saved.exitCode, 0, `stderr:\n${saved.stderr}`);
+    assert.match(saved.stdout, /Committed to .*store/);
+    const subjects = gitSubjects(storePath(sb.home));
+    assert.ok(subjects.includes("collection save nils"), `commit landed, got:\n${subjects.join("\n")}`);
+
+    const forgot = await runCli(sb.home, ["collection", "forget", "nils"]);
+    assert.equal(forgot.exitCode, 0);
+    assert.ok(gitSubjects(storePath(sb.home)).includes("collection forget nils"));
+  } finally {
+    await sb.cleanup();
+  }
+
+  // No config at all: the write path refuses with an init hint.
+  const bare = await createSandbox({ config: null });
+  try {
+    const refused = await runCli(bare.home, ["collection", "save", "x", "docx"]);
+    assert.equal(refused.exitCode, 2);
+    assert.match(refused.stderr, /ninja init/);
+    // list still answers gracefully.
+    const list = await runCli(bare.home, ["collection"]);
+    assert.equal(list.exitCode, 0);
+    assert.match(list.stdout, /no collections saved/);
+  } finally {
+    await bare.cleanup();
+  }
+});
+
+// Store-side storage means `init` cannot lose them: the file is not config
+// state that re-seeding could clobber (the ADR-0015 carry-forward concern).
+test("collections survive init re-runs (store-side storage)", async () => {
   const sb = await createSandbox();
   try {
     await plantLandscape(sb.home);
     await runCli(sb.home, ["collection", "save", "nils", "aphrodite*", "athena-ki-strategie"]);
     await runCli(sb.home, ["init"]);
-    const raw = await readRawConfig(sb.home);
-    assert.deepEqual(raw.collections.nils, ["aphrodite*", "athena-ki-strategie"]);
+    const raw = await readCollectionsFile(sb.home);
+    assert.deepEqual(raw.nils, ["aphrodite*", "athena-ki-strategie"]);
   } finally {
     await sb.cleanup();
   }

@@ -40,7 +40,7 @@ import {
   scanRootLabel,
   versionLine,
 } from "./status.js";
-import { collectionsForName, configuredCollections } from "./collection.js";
+import { collectionsForName, readCollections } from "./collection.js";
 
 const CONFIG_DIR = ".skill-ninja";
 const PAGE_FILE = "status.html";
@@ -268,11 +268,12 @@ const COCKPIT_JS = `
  *
  * @param {object} inventory The cached inventory (ADR-0003 schema).
  * @param {{store?:string|null}} config Resolved config (only `store` is used).
+ * @param {object} [collections] The store-side collections map (pre-read by
+ *   the command, ADR-0017 — render stays synchronous).
  * @returns {string} The HTML document (no trailing newline).
  */
-export function renderStatusPage(inventory, config) {
+export function renderStatusPage(inventory, config, collections = {}) {
   const store = config?.store ?? null;
-  const collections = configuredCollections(config);
   const groups = groupSkills(inventory.skills ?? []);
   const broken = inventory.broken ?? [];
   const totals = summarize(groups, broken);
@@ -487,7 +488,7 @@ export async function pageCommand(args) {
     }
   }
 
-  const html = renderStatusPage(inventory, config);
+  const html = renderStatusPage(inventory, config, await readCollections(config));
   const outPath = statusPagePath(home);
   await writeFile(outPath, html + "\n", "utf8");
 

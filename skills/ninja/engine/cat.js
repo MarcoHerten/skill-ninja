@@ -32,7 +32,7 @@ import { inventoryPath, parseFrontmatter } from "./inventory.js";
 import { quoteValue } from "./hash.js";
 import { groupSkills, isPersonal, plural } from "./status.js";
 import { tryCommit, tryPush } from "./git.js";
-import { configuredCollections, resolveCollectionMembers } from "./collection.js";
+import { readCollections, resolveCollectionMembers } from "./collection.js";
 
 // The default category vocabulary, generalized from the reference taxonomy
 // (Issue #10). Config `categories: [...]` replaces it wholesale; stamps are
@@ -185,9 +185,10 @@ export function renderCatalog(inventory, config, filter = null, opts = {}) {
       `${plural(uncatCount, "uncategorized skill")}.`,
   );
 
-  // The full catalog advertises the configured collections (ADR-0015) — the
-  // `@<name>` filter is invisible otherwise.
-  const collectionNames = Object.keys(configuredCollections(config));
+  // The full catalog advertises the saved collections (ADR-0015/0017) — the
+  // `@<name>` filter is invisible otherwise. The map is pre-read by the
+  // command (store-side, ADR-0017) and threaded in via opts.
+  const collectionNames = Object.keys(opts.collections ?? {});
   if (!filter && !opts.collection && collectionNames.length > 0) {
     lines.push("", `collections configured: ${collectionNames.join(", ")} (filter with \`cat @<name>\`)`);
   }
@@ -372,12 +373,15 @@ export async function catCommand(args) {
   // `status` when the config has vanished since init.
   const config = await loadConfigSoft(home, { store: null });
 
+  // The store-side collections map, read once for both the `@name` view and
+  // the catalog's advertisement line (ADR-0017).
+  const collections = await readCollections(config);
+
   // `cat @<name>` — the collection view (ADR-0015): only the member skills,
   // still grouped under their content categories (the collection is a filter,
   // not a taxonomy).
   if (filter !== undefined && filter.startsWith("@")) {
     const cname = filter.slice(1);
-    const collections = configuredCollections(config);
     const patterns = collections[cname];
     if (!Array.isArray(patterns)) {
       const present = Object.keys(collections);
@@ -391,10 +395,10 @@ export async function catCommand(args) {
     const members = resolveCollectionMembers(patterns, inventory);
     const names = new Set(members.map((g) => g.name));
     const scoped = { ...inventory, skills: (inventory.skills ?? []).filter((s) => names.has(s.name)) };
-    out.write(renderCatalog(scoped, config, null, { collection: { name: cname, matched: members.length } }));
+    out.write(renderCatalog(scoped, config, null, { collection: { name: cname, matched: members.length }, collections }));
     return 0;
   }
 
-  out.write(renderCatalog(inventory, config, filter ?? null));
+  out.write(renderCatalog(inventory, config, filter ?? null, { collections }));
   return 0;
 }

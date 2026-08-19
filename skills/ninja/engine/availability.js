@@ -33,7 +33,7 @@ import { inventoryPath, parseFrontmatter } from "./inventory.js";
 import { splitFrontmatter, quoteValue } from "./hash.js";
 import { groupSkills, isPersonal, groupAvailability } from "./status.js";
 import { groupCategory } from "./cat.js";
-import { configuredCollections, resolveCollectionMembers } from "./collection.js";
+import { readCollections, resolveCollectionMembers } from "./collection.js";
 import { linkSkill } from "./links.js";
 import { tryCommit, tryPush } from "./git.js";
 
@@ -356,7 +356,8 @@ function parseSwitchArgs(args) {
 // themselves (AND with the flags); unknown explicit names are reported as
 // missing. An unknown --collection is a usage error (selectors are strict —
 // unlike the `cat @<name>` view, a bulk switch must never silently no-op).
-function resolveSelection(opts, inventory, config) {
+// The store-side collections map is pre-read by the caller (ADR-0017).
+function resolveSelection(opts, inventory, config, collections) {
   let groups = groupSkills(inventory.skills ?? []);
   if (opts.category) {
     const cat = opts.category.toLowerCase();
@@ -368,7 +369,6 @@ function resolveSelection(opts, inventory, config) {
     groups = groups.filter((g) => g.occurrences.some((o) => isPersonal(o, config.store)));
   }
   if (opts.collection) {
-    const collections = configuredCollections(config);
     const patterns = collections[opts.collection];
     if (!Array.isArray(patterns)) {
       const present = Object.keys(collections);
@@ -451,7 +451,12 @@ export async function availabilityCommand(command, args) {
     return 2;
   }
 
-  const { selected, missing, error: selectionError } = resolveSelection(opts, inventory, config);
+  const { selected, missing, error: selectionError } = resolveSelection(
+    opts,
+    inventory,
+    config,
+    await readCollections(config),
+  );
   if (selectionError) {
     err.write(`${selectionError}\n`);
     return 2;
