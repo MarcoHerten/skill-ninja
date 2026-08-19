@@ -81,11 +81,11 @@ A skill's `description` in its role as the text an agent matches on to trigger i
 _Avoid_: trigger text, backup description.
 
 **Profile**:
-A named, reusable set of skills that `profile apply` pulls into a project's working directory via project-local links — additive on the global Availability baseline, so one repo can carry its content skills and another its code skills.
+A named, reusable set of skills that `profile apply` pulls into a project's working directory via project-local links — additive on the global Availability baseline, so one repo can carry its content skills and another its code skills. Stored at the canonical store's root (`<store>/profiles.json`) and versioned with it, so profiles travel with the store repo (ADR-0017).
 _Avoid_: setup, bundle, preset, workspace config.
 
 **Collection**:
-A named, personal filter over the inventory — a list of exact skill names or `prefix*` patterns living in the user's local config, resolved live by the views (`cat @<name>`, `find @<name>`, the page filter) and the availability selectors. The owner's view, not data about the skill.
+A named, personal filter over the inventory — a list of exact skill names or `prefix*` patterns living at the canonical store's root (`<store>/collections.json`), resolved live by the views (`cat @<name>`, `find @<name>`, the page filter) and the availability selectors. The owner's view, not data about the skill — and traveling with the store repo (ADR-0017).
 _Avoid_: tag, label, category (that is content taxonomy on the skill, ADR-0013), group.
 
 ### The environment

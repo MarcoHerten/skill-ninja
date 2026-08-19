@@ -39,3 +39,12 @@ Why not stamps, deliberately:
 - This is the recorded, deliberate exception to ADR-0013's
   data-on-the-skill rule; if collections ever need to be shared or
   machine-synced, that is a new decision superseding this one.
+
+## Update (2026-08-19 — superseded in part by ADR-0017)
+
+The "do not travel" consequence above is superseded by
+[ADR-0017](0017-collections-and-profiles-travel-with-the-store.md):
+collections (and profiles) now live as `<store>/collections.json` /
+`<store>/profiles.json` and travel with the store repo — the exit clause this
+ADR named. The decision's core stands unchanged: a collection is the owner's
+view, never data stamped on a skill.
