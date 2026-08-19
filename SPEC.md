@@ -94,7 +94,7 @@ Existing approaches are either ad-hoc (a hand-managed folder of symlinks) or ove
 53. As a user, I want a plugin's own version spread (several cached versions of the same bundled skill) not flagged as a duplicate — it is the plugin manager's, not mine.
 
 ### Page copy-out (2026-08)
-54. As a user, I want a copy button directly behind each skill name on the status page, so I can paste the skill's full SKILL.md into any LLM chat (Claude, ChatGPT, Gemini, …) and use the skill there.
+54. As a user, I want a copy button directly behind each skill name on the status page, so I can copy the skill's name and paste it into any chat or terminal to invoke the skill there. (Revised 2026-08-19: copies the name, not the full SKILL.md — the full-file dump buried the one token I wanted to paste.)
 
 ## Implementation Decisions
 
