@@ -67,7 +67,7 @@ A managed, read-only skill bundle distributed through an agent's own marketplace
 _Avoid_: extension, add-on.
 
 **Canonical store**:
-Skill Ninja's local source-of-truth directory for Personal skills — the copy every agent-root link points to. A git repo with a private remote; `add` commits and pushes.
+Skill Ninja's local source-of-truth directory for Personal skills — the copy every agent-root link points to. A **visible** git repository in the user's home directory, `~/skill-ninja-store` by default; the name (or full path) is chosen via `init --store`. Pushed to a private remote; every stored-skill change (`add`, `ingest --apply`, `cat assign`, availability switches) lands as a commit, so the repo's history is the per-skill change log (ADR-0016).
 _Avoid_: the library (that's Skill-Library), the repo.
 
 ### Availability — the lever on the context window

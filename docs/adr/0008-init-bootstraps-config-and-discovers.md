@@ -19,3 +19,12 @@ This replaces the previous behaviour where `init` errored on a missing config an
 - `init` is idempotent and re-runnable; re-running re-discovers and re-seeds. This is **how config gets edited** (include/exclude agents/vaults) — there is no separate `config set` DSL. Ad-hoc edits are made by the agent writing `config.json` directly; re-running `init` refreshes from detection.
 - The canonical store defaults to `~/.skill-ninja/store`; `init` creates the directory and runs `git init`. The private remote is a config field; `add` commits and pushes only if a remote is configured, else commits locally and silently skips push. First run works without a remote.
 - The hardcoded `AGENT_ROOTS` map in `engine/agents.js` grows to skills.sh's known-agent conventions and is probed by existence, rather than treated as a fixed configured set.
+
+## Update (2026-08-19 — visible store default, ADR-0016)
+
+The canonical-store default line above is superseded by
+[ADR-0016](0016-visible-canonical-store.md): the store now defaults to the
+**visible `~/skill-ninja-store`** and is name/path-selectable via
+`init --store <name|path>`. Freshly created stores are seeded (a fixed-template
+README + an initial `init store` commit); an existing configured store is
+never moved or renamed — the no-clobber rule stands.
