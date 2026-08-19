@@ -67,6 +67,13 @@ npx skills add -g MarcoHerten/skill-ninja       — Skill Ninja arrives as a glo
 
 ### 1. Install (once, globally)
 
+The two `npx` commands in this README run in a **terminal**. No terminal open yet?
+
+- **Mac:** press `⌘ + Space`, type `Terminal`, hit Enter — or find it under *Applications → Utilities*.
+- **Windows:** press the **Windows** key, type `Terminal` (or `PowerShell`), hit Enter.
+
+The only prerequisite is [Node.js](https://nodejs.org) — `npx` ships with it.
+
 ```bash
 npx skills add -g MarcoHerten/skill-ninja
 ```

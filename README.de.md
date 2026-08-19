@@ -67,6 +67,13 @@ npx skills add -g MarcoHerten/skill-ninja       – Skill Ninja kommt als global
 
 ### 1. Installieren (einmal, global)
 
+Die beiden `npx`-Befehle in diesem README laufen im **Terminal**. Noch keins offen?
+
+- **Mac:** `⌘ + Leertaste` drücken, `Terminal` eintippen, Enter – oder unter *Dienstprogramme* nachsehen.
+- **Windows:** `Windows`-Taste drücken, `Terminal` (oder `PowerShell`) eintippen, Enter.
+
+Einzige Voraussetzung: [Node.js](https://nodejs.org) – `npx` kommt mit.
+
 ```bash
 npx skills add -g MarcoHerten/skill-ninja
 ```
