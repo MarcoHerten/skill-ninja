@@ -8,18 +8,19 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 
 import { discoverAgents } from "./agents.js";
 import { normalizeCategories, normalizeNameLists } from "./config.js";
+import { tryCommit } from "./git.js";
 
 const CONFIG_DIR = ".skill-ninja";
 const CONFIG_FILE = "config.json";
-const STORE_DEFAULT = "store";
+const STORE_DEFAULT = "skill-ninja-store";
 
-/** The default canonical store path: ~/.skill-ninja/store. */
+/** The default canonical store path: ~/skill-ninja-store — visible in $HOME (ADR-0016). */
 export function defaultStore(home) {
-  return join(home, CONFIG_DIR, STORE_DEFAULT);
+  return join(home, STORE_DEFAULT);
 }
 
 // Obsidian's vault-registry path by platform (ADR-0008).
@@ -75,14 +76,32 @@ export async function seedConfig(home, config) {
   return path;
 }
 
+// The seed README every freshly created store receives (ADR-0016): a fixed
+// template — only the store name is interpolated (the engine never drafts
+// editorial prose). One line what this repo is, a keep-it-private hint.
+function seedReadme(store) {
+  const name = basename(store);
+  return (
+    `# ${name}\n\n` +
+    "This repository is the Skill Ninja canonical store: it holds the personal\n" +
+    "skills Skill Ninja manages, and its git history is the per-skill change log\n" +
+    "(add, ingest --apply, cat assign, availability switches).\n\n" +
+    "Keep this repository private — personal skills can carry private context.\n"
+  );
+}
+
 /**
  * Create the canonical store directory and `git init` it (idempotent). The
  * private remote is configured separately; the first run works with no remote.
- * (ADR-0007/0008.)
+ * (ADR-0007/0008.) A store created fresh is additionally seeded (ADR-0016): a
+ * short README.md plus an initial `init store` commit, so the repo is
+ * presentable the moment it lands on GitHub. An existing directory is never
+ * seeded, committed, or modified beyond `git init` when it has no `.git`.
  * @param {string} store Absolute store path.
  * @returns {Promise<string>} The store path.
  */
 export async function ensureStore(store) {
+  const existed = existsSync(store);
   await mkdir(store, { recursive: true });
   if (!existsSync(join(store, ".git"))) {
     try {
@@ -90,6 +109,11 @@ export async function ensureStore(store) {
     } catch {
       // git unavailable — the store is still usable; versioning just won't run.
     }
+  }
+  if (!existed) {
+    await writeFile(join(store, "README.md"), seedReadme(store), "utf8");
+    // Best-effort initial commit; without git the README simply stays uncommitted.
+    tryCommit(store, ["README.md"], "init store");
   }
   return store;
 }

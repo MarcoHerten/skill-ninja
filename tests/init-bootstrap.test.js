@@ -9,11 +9,20 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { createSandbox, runCli, plantSkill } from "./helpers/harness.js";
 
 async function readJson(path) {
   return JSON.parse(await readFile(path, "utf8"));
+}
+
+// The store's commit subjects (one per line) — reading the resulting repo state
+// through git is part of the black-box contract (ADR-0001: filesystem state).
+function gitSubjects(store) {
+  return execFileSync("git", ["-C", store, "log", "--format=%s"], { encoding: "utf8" })
+    .split(/\r?\n/)
+    .filter(Boolean);
 }
 
 // Fresh machine — no config. init bootstraps one from detection and scans.
@@ -31,10 +40,17 @@ test("init bootstraps a config on a fresh machine and scans the discovered roots
     const cfg = await readJson(join(sb.home, ".skill-ninja", "config.json"));
     assert.ok(cfg.agents.includes("claude"), `claude detected, got:\n${JSON.stringify(cfg)}`);
     assert.ok(cfg.agents.includes("zcode"), `zcode detected, got:\n${JSON.stringify(cfg)}`);
-    assert.ok(typeof cfg.store === "string" && cfg.store, "store seeded");
+    // The store default is the visible ~/skill-ninja-store (ADR-0016).
+    assert.equal(cfg.store, join(sb.home, "skill-ninja-store"), `visible default store, got:\n${cfg.store}`);
 
-    // Canonical store created + git init'd (first run, no remote needed).
+    // Canonical store created + git init'd (first run, no remote needed), and
+    // seeded: fixed-template README + initial `init store` commit (ADR-0016).
     assert.ok(existsSync(join(cfg.store, ".git")), `store should be a git repo, store=${cfg.store}`);
+    const readme = await readFile(join(cfg.store, "README.md"), "utf8");
+    assert.match(readme, /# skill-ninja-store/, "README names the store");
+    assert.match(readme, /canonical store/, "README says what the repo is");
+    assert.match(readme, /private/i, "README carries the keep-it-private hint");
+    assert.deepEqual(gitSubjects(cfg.store), ["init store"], "exactly the initial commit");
 
     // Inventory scanned the discovered roots.
     const cache = await readJson(join(sb.home, ".skill-ninja", "inventory.json"));
@@ -100,6 +116,55 @@ test("init preserves an existing config's choices on re-run (no clobber)", async
     // agents stay as configured (not expanded to every detected agent), projects preserved.
     assert.deepEqual(cfg.agents, ["claude"], `agents preserved, got:\n${JSON.stringify(cfg)}`);
     assert.deepEqual(cfg.projects, ["~/code/proj"], `projects preserved, got:\n${JSON.stringify(cfg)}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Seeding is fresh-creation-only (ADR-0016): a re-run never re-seeds the README
+// nor re-commits it — the user's edits to the seed README survive re-running init.
+test("init re-run does not re-seed or re-commit the store README", async () => {
+  const sb = await createSandbox({ config: null });
+  try {
+    await plantSkill(sb.home, ".claude/skills/boot-c");
+    await runCli(sb.home, ["init"]);
+    const store = join(sb.home, "skill-ninja-store");
+    assert.ok(existsSync(join(store, "README.md")), "first run seeds the README");
+    assert.deepEqual(gitSubjects(store), ["init store"]);
+
+    // The user edits the seed README (or git state moves on) — re-run init.
+    const readme = join(store, "README.md");
+    await writeFile(readme, (await readFile(readme, "utf8")) + "\nA hand-added line.\n", "utf8");
+    const { exitCode } = await runCli(sb.home, ["init"]);
+    assert.equal(exitCode, 0);
+
+    const after = await readFile(readme, "utf8");
+    assert.match(after, /A hand-added line\./, "README not overwritten by the re-run");
+    assert.deepEqual(gitSubjects(store), ["init store"], "no second init-store commit");
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// An existing directory configured/pointed at as the store is never seeded,
+// committed, or modified beyond `git init` (ADR-0016) — pointing `init` at a
+// pre-existing directory must not pollute it.
+test("init does not seed a store directory that already exists", async () => {
+  const sb = await createSandbox({
+    config: { store: "~/pre-existing-store", agents: ["claude"], vaults: [], projects: [] },
+  });
+  try {
+    await mkdir(join(sb.home, "pre-existing-store"), { recursive: true });
+    await writeFile(join(sb.home, "pre-existing-store", "notes.txt"), "hands off\n", "utf8");
+
+    const { exitCode } = await runCli(sb.home, ["init"]);
+    assert.equal(exitCode, 0);
+
+    const store = join(sb.home, "pre-existing-store");
+    assert.ok(!existsSync(join(store, "README.md")), "an existing directory is never seeded");
+    assert.equal(await readFile(join(store, "notes.txt"), "utf8"), "hands off\n", "existing files untouched");
+    // `git init` on a .git-less directory is the one allowed modification.
+    assert.ok(existsSync(join(store, ".git")), "git init still runs when there is no .git");
   } finally {
     await sb.cleanup();
   }
