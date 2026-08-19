@@ -12,7 +12,7 @@ Existing options are either ad-hoc (a folder of symlinks) or overloaded multi-to
 
 Skill Ninja runs **inside your coding agent**, on top of the skills [skills.sh](https://skills.sh) (or you) placed there. **skills.sh installs skills; Skill Ninja looks after them** — one clear picture of the landscape, plus the tools to keep it healthy:
 
-- **`/ninja init`** — analyzes your machine: which agents are installed, where every skill lives across roots and vaults (no config needed on first run — it's created for you).
+- **`/ninja init`** — analyzes your machine: which agents are installed, where every skill lives across roots and vaults (no config needed on first run — it's created for you). Your **canonical store** lands as a visible git repo at `~/skill-ninja-store` by default — your own name or path via `init --store <name|path>`.
 - **`/ninja status`** — one inventory view: per-agent reachability, copy-vs-symlink, global-vs-project, duplicates, broken symlinks, versions, and provenance.
 - **`/ninja cat`** *(live, v1.2)* — the category catalog: browse your skills grouped by category (each with its one-line description), filter by a category term; `cat assign` stamps a category onto the stored copy. Categories live in the skill's frontmatter — never in a hand-maintained mapping ([ADR-0013](./docs/adr/0013-category-stamps-and-catalog.md)) — and the status page groups by category too.
 - **`/ninja page`** *(live, v1.1 — interactive cockpit since v1.3)* — renders the cached inventory as one self-contained static HTML page (`~/.skill-ninja/status.html`: inline styles + one inline script, no server, no external assets, no network) and prints the path. The browser counterpart of `/ninja status`, regenerated on every run — [ADR-0011](./docs/adr/0011-static-html-status-page.md). Since v1.3 it is the availability cockpit: search, availability/tier/category filters, checkbox bulk-selection generating a copyable `ninja … --apply` command — the page executes nothing, the engine stays behind `--apply`.
@@ -25,7 +25,7 @@ Skill Ninja runs **inside your coding agent**, on top of the skills [skills.sh](
 - **`/ninja collection`** *(live, v1.3.1)* — named, personal filters over the inventory ("everything from Nils"): pattern lists in your local config, resolved live by `cat @<name>`, `find @<name>`, the page's dropdown, and `off/manual/on --collection`. Local-only by design — never on the skills, never in this repo ([ADR-0015](./docs/adr/0015-collections-are-config-side.md)).
 - **`/ninja diff`** — shows what changed in a skill since you stored it ("my friend sent v2 — what's new?"), or against the upstream skills.sh source.
 
-Your **personal** skills live in a **local canonical store** — a git repo with an optional **private remote** for versioning. Skills you installed via skills.sh stay owned by skills.sh; Skill Ninja watches over everything.
+Your **personal** skills live in a **visible canonical store** — a named git repository in your home directory (`~/skill-ninja-store` by default; your own name or path via `init --store`), seeded with a README and an initial commit, pushed to an optional **private remote**. Its history is the per-skill change log: every stored-skill change (`add`, `ingest --apply`, `cat assign`, availability switches) lands as a commit. Skills you installed via skills.sh stay owned by skills.sh; Skill Ninja watches over everything.
 
 ## Quick start
 
@@ -46,7 +46,7 @@ This installs Skill Ninja as a skill into your agent(s) — the same distributio
 /ninja status
 ```
 
-`init` needs no preparation: it discovers which coding agents are on your machine, finds every skill across agent roots, Obsidian vaults, and project directories, and bootstraps the config (`~/.skill-ninja/config.json`) plus your **canonical store** (`~/.skill-ninja/store`, git-initialized). `status` then gives you the one inventory view — duplicates, broken symlinks, versions, provenance. Re-run either whenever the landscape changes; filters like `/ninja status --duplicates` narrow the view. Prefer a browser? `/ninja page` writes the same view as a self-contained HTML file and tells you where.
+`init` needs no preparation: it discovers which coding agents are on your machine, finds every skill across agent roots, Obsidian vaults, and project directories, and bootstraps the config (`~/.skill-ninja/config.json`) plus your **canonical store** — a visible, git-initialized repository at `~/skill-ninja-store`, seeded with a short README and an initial commit so it is presentable from the first push. On first run your agent proposes the default name and asks whether you'd like your own (a bare name like `my-skills` or a path like `~/code/skill-store`, passed as `init --store`); re-running `init` never renames or moves an existing store. `status` then gives you the one inventory view — duplicates, broken symlinks, versions, provenance. Re-run either whenever the landscape changes; filters like `/ninja status --duplicates` narrow the view. Prefer a browser? `/ninja page` writes the same view as a self-contained HTML file and tells you where.
 
 ### 3. Clean up: `doctor`
 
@@ -58,11 +58,13 @@ Detects broken links, duplicate spreads, and orphaned copies — and proposes a 
 
 ### 4. Turn on versioning (recommended, once)
 
-Every skill Skill Ninja stores is committed to the store's git repo. For off-machine backup and browsable history, create a **private** GitHub repo and wire it up:
+Every skill Skill Ninja stores is committed to the store repo — the visible repository at `~/skill-ninja-store` (or the name/path you picked). For off-machine backup and browsable history, create a **private** GitHub repo and wire it up:
 
 ```bash
-git -C ~/.skill-ninja/store remote add origin git@github.com:<you>/skill-store.git
+git -C ~/skill-ninja-store remote add origin git@github.com:<you>/skill-ninja-store.git
 ```
+
+That is the intended setup: **one visible repo, pushed to a private remote, browsable per-skill history** — `add`, `ingest --apply`, `cat assign`, and availability switches all land as commits, so the log answers "what changed on this skill and when".
 
 Keep that repo private — personal skills often carry company context. No remote? Skill Ninja still commits locally and skips pushing silently.
 
@@ -108,7 +110,7 @@ The bulk path: the export with the same skill as folder, `.zip`, `.skill`, *and*
 
 ## Status
 
-🚧 **Early — v1.0 command surface implemented; v1.1 bulk ingest + status page; v1.2 category catalog; v1.3 availability layer live.** v1.0 is live: `init` (bootstrap + scan), `status`, `doctor`, `add` (safety check, stamping, commit + push), `diff`. The v1.1 `ingest` pipeline is live end to end — classification, deterministic cluster resolution (winners / losers / needs-decision with side-by-sides), prompt wrapping, the safety column, and `--apply` (store the winners with provenance in one commit + push, idempotent re-ingest) ([ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)) — and the v1.1 static HTML status page (`page`) renders the inventory as one self-contained offline file ([ADR-0011](./docs/adr/0011-static-html-status-page.md)). The v1.2 category catalog is live: `cat` groups the landscape by category, `cat assign` stamps categories onto stored skills, and the page groups by category ([ADR-0013](./docs/adr/0013-category-stamps-and-catalog.md)). The v1.3 availability layer is live: `on`/`off`/`manual` with uniform selectors and two-phase apply, the per-tier mechanisms (Personal unlink + stamps with `activation_text` preservation; External ZCode-config disable with an ownership ledger), `find`, `profile save/list/forget/apply/lift`, inventory schema v4 (the canonical store is a scan root, so Off skills stay visible), and the page's interactive cockpit ([ADR-0014](./docs/adr/0014-availability-layer.md)). The skill is invoked as `/ninja` (e.g. `/ninja init`). See [`SPEC.md`](./SPEC.md), [`CONTEXT.md`](./CONTEXT.md), and [`docs/adr/`](./docs/adr).
+🚧 **Early — v1.0 command surface implemented; v1.1 bulk ingest + status page; v1.2 category catalog; v1.3 availability layer; v1.4 visible canonical store live.** v1.0 is live: `init` (bootstrap + scan), `status`, `doctor`, `add` (safety check, stamping, commit + push), `diff`. The v1.1 `ingest` pipeline is live end to end — classification, deterministic cluster resolution (winners / losers / needs-decision with side-by-sides), prompt wrapping, the safety column, and `--apply` (store the winners with provenance in one commit + push, idempotent re-ingest) ([ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)) — and the v1.1 static HTML status page (`page`) renders the inventory as one self-contained offline file ([ADR-0011](./docs/adr/0011-static-html-status-page.md)). The v1.2 category catalog is live: `cat` groups the landscape by category, `cat assign` stamps categories onto stored skills, and the page groups by category ([ADR-0013](./docs/adr/0013-category-stamps-and-catalog.md)). The v1.3 availability layer is live: `on`/`off`/`manual` with uniform selectors and two-phase apply, the per-tier mechanisms (Personal unlink + stamps with `activation_text` preservation; External ZCode-config disable with an ownership ledger), `find`, `profile save/list/forget/apply/lift`, inventory schema v4 (the canonical store is a scan root, so Off skills stay visible), and the page's interactive cockpit ([ADR-0014](./docs/adr/0014-availability-layer.md)). The v1.4 visible canonical store is live: `~/skill-ninja-store` as the default, `init --store <name|path>` name/path selection with plain-language switch reporting, and fresh-store seeding (README + initial commit) ([ADR-0016](./docs/adr/0016-visible-canonical-store.md)). The skill is invoked as `/ninja` (e.g. `/ninja init`). See [`SPEC.md`](./SPEC.md), [`CONTEXT.md`](./CONTEXT.md), and [`docs/adr/`](./docs/adr).
 
 ## Install
 
@@ -134,6 +136,7 @@ The update is hash-based — only skills whose content changed are rewritten —
 - **v1.1** ✅ — `ingest` (bulk pipeline for messy skill/prompt directories — [ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)); static HTML status page ([ADR-0011](./docs/adr/0011-static-html-status-page.md))
 - **v1.3** ✅ — availability layer: `on`/`off`/`manual`, `find`, `profile`, inventory v4, the page cockpit ([ADR-0014](./docs/adr/0014-availability-layer.md))
 - **v1.3.1** ✅ — collections: personal config-side filters for `cat`/`find`/page/`--collection` ([ADR-0015](./docs/adr/0015-collections-are-config-side.md))
+- **v1.4** ✅ — visible canonical store: `~/skill-ninja-store` default, `init --store <name|path>`, seeded README + initial commit ([ADR-0016](./docs/adr/0016-visible-canonical-store.md))
 
 ## Design principles
 
