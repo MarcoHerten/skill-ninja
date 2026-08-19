@@ -63,8 +63,12 @@ A skill scoped to a single project's working directory rather than installed glo
 _Avoid_: local skill.
 
 **Plugin**:
-A managed, read-only skill bundle distributed through an agent's own marketplace (e.g. a Claude Code plugin), updated by the agent rather than the user.
+A managed, read-only skill bundle distributed through an agent's own plugin system (e.g. a Claude Code or ZCode plugin), updated by the agent rather than the user. Its skills live in the plugin's `skills/` subtree — the layout the vendor-neutral **Agent Plugins 1.0.0** spec standardized (`plugin.json` manifest + `skills/` + optional `mcp.json` and `com.example.*` client dirs). Plugin-bundled skills are **plugin-owned**: audited by Skill Ninja, never managed, linked, or switched (ADR-0018).
 _Avoid_: extension, add-on.
+
+**Plugin root**:
+The cache directory under $HOME where an agent's plugin system unpacks plugins (`~/.claude/plugins/cache`, `~/.zcode/cli/plugins/cache`). A scan root of kind plugin; the sibling `marketplaces/` source clones are deliberately not scanned — every plugin would count twice (ADR-0018).
+_Avoid_: plugin cache (say plugin root, the scan-root sense).
 
 **Canonical store**:
 Skill Ninja's local source-of-truth directory for Personal skills — the copy every agent-root link points to. A **visible** git repository in the user's home directory, `~/skill-ninja-store` by default; the name (or full path) is chosen via `init --store`. Pushed to a private remote; every stored-skill change (`add`, `ingest --apply`, `cat assign`, availability switches) lands as a commit, so the repo's history is the per-skill change log (ADR-0016).
@@ -99,5 +103,5 @@ The fact that different agents read different agent roots, so one logical skill 
 _Avoid_: multi-tool problem (say tool asymmetry).
 
 **Scan root**:
-One of the locations `init` walks for skills — an agent root, an Obsidian vault, or a configured project directory. `status` reports per scan root. (In an earlier draft this was named `scope` in the code and inventory schema; the rename is complete — see ADR-0003.)
+One of the locations `init` walks for skills — an agent root, a plugin root, an Obsidian vault, or a configured project directory. `status` reports per scan root. (In an earlier draft this was named `scope` in the code and inventory schema; the rename is complete — see ADR-0003.)
 _Avoid_: scope (reserved for the global-vs-project tier sense — see Project skill).

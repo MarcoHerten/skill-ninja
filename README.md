@@ -13,6 +13,7 @@ One skill is a gift. Twenty are a job:
 - They scatter across agents, project folders, and Obsidian vaults — some global, some per project.
 - Some are real copies, some are just links (symlinks). Links break silently.
 - Two versions of the same skill sit side by side, and nothing tells you which one actually runs.
+- Whole skill packs arrive bundled inside **plugins**, in cache folders no skills view looks at.
 - A friend sends you "v2" of a skill. What changed? Nobody wants to find out by hand.
 
 If you live in the terminal, you might script your way around this. Everyone else manages the mess by hand — or gives up. Skill Ninja exists so nobody has to.
@@ -23,8 +24,8 @@ Skill Ninja runs **inside your coding agent**, as slash commands, on top of the 
 
 The short version: **skills.sh installs skills. Skill Ninja looks after them.** One clear picture of your landscape, plus the tools to keep it healthy:
 
-- **`/ninja init`** — looks at your machine: which agents are installed, where every skill lives. No preparation needed — the config is created for you on first run. Also sets up your **skill store**, a plain, visible git repo at `~/skill-ninja-store` by default (your own name or path: `init --store <name|path>`).
-- **`/ninja status`** — the inventory on one screen: which agent can reach which skill, real copy or link, global or project, duplicates, broken links, versions, and where each skill came from.
+- **`/ninja init`** — looks at your machine: which agents are installed, where every skill lives — loose ones and plugin-bundled ones alike. No preparation needed — the config is created for you on first run. Also sets up your **skill store**, a plain, visible git repo at `~/skill-ninja-store` by default (your own name or path: `init --store <name|path>`).
+- **`/ninja status`** — the inventory on one screen: which agent can reach which skill, real copy or link, global or project, duplicates, broken links, versions, and where each skill came from — skills bundled inside agent plugins included, shown with the plugin they belong to.
 - **`/ninja cat`** — your catalog: browse skills grouped by category (each with its one-line description) or filter by a term. `cat assign` files an uncategorized skill. Categories live in the skill's own frontmatter, never in a hand-maintained list ([ADR-0013](./docs/adr/0013-category-stamps-and-catalog.md)) — and the status page groups by category too.
 - **`/ninja page`** — the same inventory as a website: one self-contained HTML file at `~/.skill-ninja/status.html`. No server, no external assets, no network. Since v1.3 it's a small cockpit: search, filters, and checkboxes that build a copyable `ninja … --apply` command. The page itself never executes anything — the engine stays behind `--apply` ([ADR-0011](./docs/adr/0011-static-html-status-page.md)).
 - **`/ninja doctor`** — finds broken links, duplicate spreads, and orphaned copies, and proposes a repair for each. Nothing is touched until you approve: re-run with `--apply` to execute the fixes you agreed to.
@@ -40,7 +41,18 @@ The short version: **skills.sh installs skills. Skill Ninja looks after them.** 
 
 Your **personal** skills live in one visible place: the **skill store**, a normal git repository in your home directory (`~/skill-ninja-store` by default). You can open it, read it, browse its history. Push it to a private GitHub repo and you get off-machine backup plus a per-skill change log — every Skill Ninja action lands as a commit that answers "what changed on this skill, and when?".
 
-Skills you installed via skills.sh stay owned by skills.sh — Skill Ninja watches over them too, it just doesn't re-link them.
+Skills you installed via skills.sh stay owned by skills.sh — Skill Ninja watches over them too, it just doesn't re-link them. And skills bundled inside agent **plugins** stay owned by the plugin system — inventoried like everything else, never touched.
+
+## Ready for Agent Plugins
+
+Agents don't only read loose skills — they read **plugins**, and plugins bundle skills of their own. [Agent Plugins 1.0.0](https://developers.googleblog.com/agent-plugins-package-your-skills-tools-and-more/) — the open packaging spec maintained by Amazon, Cursor, Microsoft, OpenAI, and Vercel, joined by Google in 2026 — standardizes that bundle: a directory with a `plugin.json` manifest, its skills in `skills/`, tools and client extras alongside.
+
+Skill Ninja is ready for it ([ADR-0018](./docs/adr/0018-plugin-owned-skills.md)):
+
+- **Plugin-bundled skills show up in your inventory.** `status`, `page`, `cat`, and `find` list them with the plugin they belong to — "where every skill lives" includes the plugin channel. The spec layout is recognized as-is: a plugin in the Agent Plugins 1.0.0 format is discovered and attributed by its manifest name, today.
+- **Nothing inside a plugin is ever touched.** Plugins are your agent's plugin system's business — Skill Ninja audits them the way it audits skills.sh installs: no repairs, no re-links, no availability switches. (A plugin caching several versions of the same skill is the plugin manager's spread, not your duplicate.)
+
+The plugin roots currently cover the caches of Claude Code (`~/.claude/plugins/cache`) and ZCode (`~/.zcode/cli/plugins/cache`) — the spec deliberately defines no install location, so the map grows as clients adopt the format.
 
 ## Quick start
 
@@ -161,7 +173,7 @@ The comparison runs over the skill body, so bookkeeping churn — stamps, hashes
 
 ## Status
 
-🚧 **Early — and everything below is live, up to v1.5.**
+🚧 **Early — and everything below is live, up to v1.6.**
 
 - **v1.0** — `init` (bootstrap + scan), `status`, `doctor`, `add` (safety check, stamping, commit + push), `diff`
 - **v1.1** — the bulk `ingest` pipeline ([ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)); the offline status `page` ([ADR-0011](./docs/adr/0011-static-html-status-page.md))
@@ -170,6 +182,7 @@ The comparison runs over the skill body, so bookkeeping churn — stamps, hashes
 - **v1.3.1** — collections as personal filters for `cat`/`find`/page/`--collection` ([ADR-0015](./docs/adr/0015-collections-are-config-side.md))
 - **v1.4** — the visible canonical store: `~/skill-ninja-store` as the default, `init --store`, seeded README + first commit ([ADR-0016](./docs/adr/0016-visible-canonical-store.md))
 - **v1.5** — traveling bundles: collections & profiles live store-side (`<store>/collections.json` / `profiles.json`), travel with the store repo, and come back on a fresh machine by cloning the store + `init` ([ADR-0017](./docs/adr/0017-collections-and-profiles-travel-with-the-store.md))
+- **v1.6** — plugin awareness: skills bundled inside agent plugins (Agent Plugins 1.0.0 layout and the pre-spec caches) are inventoried as plugin-owned — shown everywhere, touched nowhere ([ADR-0018](./docs/adr/0018-plugin-owned-skills.md))
 
 The skill is invoked as `/ninja` (e.g. `/ninja init`). More detail in [`SPEC.md`](./SPEC.md), [`CONTEXT.md`](./CONTEXT.md), and [`docs/adr/`](./docs/adr).
 
@@ -200,11 +213,12 @@ The update is hash-based: only skills whose content actually changed are rewritt
 - **v1.3.1** ✅ — collections: personal filters for `cat`/`find`/page/`--collection` ([ADR-0015](./docs/adr/0015-collections-are-config-side.md))
 - **v1.4** ✅ — visible canonical store: `~/skill-ninja-store` default, `init --store <name|path>`, seeded README + initial commit ([ADR-0016](./docs/adr/0016-visible-canonical-store.md))
 - **v1.5** ✅ — traveling bundles: collections & profiles move store-side (`<store>/collections.json` / `profiles.json`), committed with the store, restored on a fresh machine by clone + `init` ([ADR-0017](./docs/adr/0017-collections-and-profiles-travel-with-the-store.md))
+- **v1.6** ✅ — plugin awareness: agent plugin caches become scan roots, bundled skills are audited as plugin-owned (Agent Plugins 1.0.0-ready) ([ADR-0018](./docs/adr/0018-plugin-owned-skills.md))
 
 ## Design principles
 
 - **Local-first** — your skills stay on your machine; the only network is the optional Git remote.
-- **One source of truth per tier** — a canonical store for personal skills (linked into each agent's root), and skills.sh's lockfile for the skills it installed. Skill Ninja audits across both.
+- **One source of truth per tier** — a canonical store for personal skills (linked into each agent's root), skills.sh's lockfile for the skills it installed, and the agent's plugin system for plugin-bundled skills. Skill Ninja audits across all three.
 - **Agent-native** — operated via slash commands in your coding agent, not a separate app.
 - **Safe by default** — a lightweight safety check on every incoming skill, and bulk actions stay dry runs until you pass `--apply`.
 
