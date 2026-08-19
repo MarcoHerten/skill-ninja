@@ -1,6 +1,7 @@
 // Black-box tests for `ninja profile` (ADR-0014) — named, reusable skill sets
-// applied per project via project-local symlinks. save/forget manage the
-// config data; apply runs in the project directory and links members into
+// applied per project via project-local symlinks. Since ADR-0017 the data
+// lives at the store's root (`<store>/profiles.json`) and travels with the
+// store repo; apply runs in the project directory and links members into
 // <cwd>/.agents/skills → <store>; lift removes exactly those links. Tests
 // import no engine code (ADR-0001).
 
@@ -8,14 +9,22 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, realpath, stat, symlink, mkdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createSandbox, runCli, plantSkill, readStoredSkill } from "./helpers/harness.js";
+import { createSandbox, runCli, plantSkill, readStoredSkill, storePath, makeStoreGitRepo } from "./helpers/harness.js";
 
-async function readRawConfig(home) {
-  return JSON.parse(await readFile(join(home, ".skill-ninja", "config.json"), "utf8"));
+// The store-side profiles map (the storage since ADR-0017).
+async function readProfilesFile(home) {
+  return JSON.parse(await readFile(join(storePath(home), "profiles.json"), "utf8"));
+}
+
+function gitSubjects(store) {
+  return execFileSync("git", ["-C", store, "log", "--format=%s"], { encoding: "utf8" })
+    .split(/\r?\n/)
+    .filter(Boolean);
 }
 
 async function makeProjectDir() {
@@ -36,8 +45,8 @@ test("profile save validates members against the store; list shows what exists",
     assert.equal(ok.exitCode, 0);
     assert.match(ok.stdout, /Saved profile 'content' with 2 skills/);
 
-    const raw = await readRawConfig(sb.home);
-    assert.deepEqual(raw.profiles.content, ["alpha", "beta"]);
+    const raw = await readProfilesFile(sb.home);
+    assert.deepEqual(raw.content, ["alpha", "beta"]);
 
     const list = await runCli(sb.home, ["profile", "list"]);
     assert.equal(list.exitCode, 0);
@@ -141,8 +150,8 @@ test("profile lift removes only store-pointing links; forget removes the profile
     const forget = await runCli(sb.home, ["profile", "forget", "content"]);
     assert.equal(forget.exitCode, 0);
     assert.match(forget.stdout, /Forgot profile 'content'/);
-    const raw = await readRawConfig(sb.home);
-    assert.equal(raw.profiles.content, undefined);
+    const raw = await readProfilesFile(sb.home);
+    assert.equal(raw.content, undefined);
 
     const gone = await runCli(sb.home, ["profile", "apply", "content"], { cwd: project });
     assert.equal(gone.exitCode, 2);
@@ -150,5 +159,25 @@ test("profile lift removes only store-pointing links; forget removes the profile
   } finally {
     await sb.cleanup();
     await rm(project, { recursive: true, force: true });
+  }
+});
+
+// Store-side storage (ADR-0017): saves land in <store>/profiles.json and as
+// commits in the store repo.
+test("profile save/forget write the store file and commit it", async () => {
+  const sb = await createSandbox();
+  try {
+    await plantSkill(sb.home, ".skill-ninja/store/alpha", { frontmatter: { name: "alpha" } });
+    makeStoreGitRepo(sb.home);
+    const saved = await runCli(sb.home, ["profile", "save", "content", "alpha"]);
+    assert.equal(saved.exitCode, 0, `stderr:\n${saved.stderr}`);
+    assert.match(saved.stdout, /Committed to .*store/);
+    assert.ok(gitSubjects(storePath(sb.home)).includes("profile save content"));
+
+    const forgot = await runCli(sb.home, ["profile", "forget", "content"]);
+    assert.equal(forgot.exitCode, 0);
+    assert.ok(gitSubjects(storePath(sb.home)).includes("profile forget content"));
+  } finally {
+    await sb.cleanup();
   }
 });

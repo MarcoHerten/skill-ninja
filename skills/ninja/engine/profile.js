@@ -1,20 +1,22 @@
 // `ninja profile` — named, reusable skill sets applied per project (ADR-0014,
-// CONTEXT.md "Profile"). Profiles live in the skill-ninja config
-// (`profiles: { <name>: [<skill names>] }`); `apply` runs in the project's
-// working directory and symlinks each member into `<cwd>/.agents/skills/` →
-// `<store>/<name>` (project-local roots are discovered per workspace, so a
-// globally-Off skill is active exactly where a project links it). Additive on
-// the global Availability baseline; Personal members only (an External member
-// is refused — its re-enabling per project would rest on undocumented
-// ZCode override precedence). `lift` removes exactly the links the profile
-// owns — never a real directory.
+// CONTEXT.md "Profile"; storage store-side since ADR-0017). Profiles live at
+// the canonical store's root (`<store>/profiles.json`) and travel with the
+// store repo; `apply` runs in the project's working directory and symlinks
+// each member into `<cwd>/.agents/skills/` → `<store>/<name>` (project-local
+// roots are discovered per workspace, so a globally-Off skill is active
+// exactly where a project links it). Additive on the global Availability
+// baseline; Personal members only (an External member is refused — its
+// re-enabling per project would rest on undocumented ZCode override
+// precedence). `lift` removes exactly the links the profile owns — never a
+// real directory.
 
 import { lstat, realpath, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { cwd as processCwd } from "node:process";
-import { loadConfig, readRawConfig, writeRawConfig } from "./config.js";
+import { loadConfig } from "./config.js";
+import { readStoreList, writeStoreList, commitStoreList, PROFILES_FILE } from "./storelists.js";
 import { linkSkill } from "./links.js";
 
 // The project-local skills root profiles link into — the cross-tool
@@ -26,10 +28,8 @@ function projectSkillsDir(projectDir) {
   return join(projectDir, ...PROJECT_ROOT_SEGMENTS);
 }
 
-async function loadProfiles(home) {
-  const raw = await readRawConfig(home);
-  const profiles = raw?.profiles && typeof raw.profiles === "object" ? raw.profiles : {};
-  return { raw, profiles };
+async function loadProfiles(store) {
+  return readStoreList(store, PROFILES_FILE);
 }
 
 function listCommand(out, profiles, name) {
@@ -61,7 +61,7 @@ function listCommand(out, profiles, name) {
   return 0;
 }
 
-async function saveCommand(out, err, home, config, args) {
+async function saveCommand(out, err, config, args) {
   const [name, ...skills] = args;
   if (!name || skills.length === 0) {
     err.write("save needs a profile name and at least one skill name.\n");
@@ -84,46 +84,47 @@ async function saveCommand(out, err, home, config, args) {
     return 2;
   }
 
-  const { raw, profiles } = await loadProfiles(home);
+  const profiles = await loadProfiles(config.store);
   const members = [...new Set(skills)];
   const existed = Array.isArray(profiles[name]);
   profiles[name] = members;
-  raw.profiles = profiles;
-  await writeRawConfig(home, raw);
+  await writeStoreList(config.store, PROFILES_FILE, profiles);
+  const committed = commitStoreList(config.store, PROFILES_FILE, `profile save ${name}`);
   out.write(
-    `${existed ? "Updated" : "Saved"} profile '${name}' with ${members.length} skill${members.length === 1 ? "" : "s"}.\n` +
+    `${existed ? "Updated" : "Saved"} profile '${name}' with ${members.length} skill${members.length === 1 ? "" : "s"}. ` +
       `Apply it in a project with: ninja profile apply ${name}\n`,
   );
+  if (committed) out.write(`Committed to ${config.store} (travels with the store repo).\n`);
   return 0;
 }
 
-async function forgetCommand(out, err, home, args) {
+async function forgetCommand(out, err, config, args) {
   const [name] = args;
   if (!name) {
     err.write("forget needs a profile name.\n");
     err.write("Try: ninja profile forget <name>\n");
     return 2;
   }
-  const { raw, profiles } = await loadProfiles(home);
+  const profiles = await loadProfiles(config.store);
   if (!Array.isArray(profiles[name])) {
     err.write(`No profile '${name}'.\n`);
     return 2;
   }
   delete profiles[name];
-  raw.profiles = profiles;
-  await writeRawConfig(home, raw);
+  await writeStoreList(config.store, PROFILES_FILE, profiles);
+  commitStoreList(config.store, PROFILES_FILE, `profile forget ${name}`);
   out.write(`Forgot profile '${name}'. (Links already applied in projects stay until lifted.)\n`);
   return 0;
 }
 
-async function applyCommand(out, err, home, config, args) {
+async function applyCommand(out, err, config, args) {
   const [name] = args;
   if (!name) {
     err.write("apply needs a profile name.\n");
     err.write("Try: ninja profile apply <name>\n");
     return 2;
   }
-  const { profiles } = await loadProfiles(home);
+  const profiles = await loadProfiles(config.store);
   const members = profiles[name];
   if (!Array.isArray(members)) {
     err.write(`No profile '${name}'. Save it with: ninja profile save ${name} <skill> …\n`);
@@ -163,14 +164,14 @@ async function applyCommand(out, err, home, config, args) {
   return 0;
 }
 
-async function liftCommand(out, err, home, config, args) {
+async function liftCommand(out, err, config, args) {
   const [name] = args;
   if (!name) {
     err.write("lift needs a profile name.\n");
     err.write("Try: ninja profile lift <name>\n");
     return 2;
   }
-  const { profiles } = await loadProfiles(home);
+  const profiles = await loadProfiles(config.store);
   const members = profiles[name];
   if (!Array.isArray(members)) {
     err.write(`No profile '${name}'.\n`);
@@ -223,19 +224,18 @@ export async function profileCommand(args) {
   const out = process.stdout;
   const err = process.stderr;
   const [sub, ...rest] = args;
-
-  if (sub === undefined || sub === "list") {
-    const home = homedir();
-    const { profiles } = await loadProfiles(home);
-    return listCommand(out, profiles, rest[0]);
-  }
-
   const home = homedir();
+
+  // Profiles live in the store (ADR-0017); every subcommand needs the
+  // resolved store path. `list` without a config still answers (empty).
   let config;
   try {
     config = await loadConfig(home);
   } catch (e) {
     if (e && e.code === "ENOENT") {
+      if (sub === undefined || sub === "list") {
+        return listCommand(out, {}, rest[0]);
+      }
       err.write("No Skill Ninja configuration found. Run `ninja init` first.\n");
       return 2;
     }
@@ -246,10 +246,15 @@ export async function profileCommand(args) {
     return 2;
   }
 
-  if (sub === "save") return saveCommand(out, err, home, config, rest);
-  if (sub === "forget") return forgetCommand(out, err, home, rest);
-  if (sub === "apply") return applyCommand(out, err, home, config, rest);
-  if (sub === "lift") return liftCommand(out, err, home, config, rest);
+  if (sub === undefined || sub === "list") {
+    const profiles = await loadProfiles(config.store);
+    return listCommand(out, profiles, rest[0]);
+  }
+
+  if (sub === "save") return saveCommand(out, err, config, rest);
+  if (sub === "forget") return forgetCommand(out, err, config, rest);
+  if (sub === "apply") return applyCommand(out, err, config, rest);
+  if (sub === "lift") return liftCommand(out, err, config, rest);
 
   err.write(`Unknown profile subcommand: ${sub}\n`);
   err.write("Try: ninja profile list [name] | save <name> <skill> … | forget <name> | apply <name> | lift <name>\n");
