@@ -424,6 +424,7 @@ ${generatedAt}    <p class="summary">${escapeHtml(summarySentence(totals))}</p>
         <option value="all">tier: all</option>
         <option value="personal">Personal</option>
         <option value="external">External</option>
+        <option value="plugin">Plugin</option>
       </select>
       <select id="f-cat" aria-label="filter by category">
         <option value="all">category: all</option>

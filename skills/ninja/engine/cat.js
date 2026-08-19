@@ -100,10 +100,12 @@ export function groupDescription(occurrences) {
 }
 
 // A group's tier badge: External when skills.sh owns any occurrence (lockfile
-// attribution, ADR-0007), else Personal when any occurrence matches the
-// ADR-0004 heuristic, else none. Exported for `page` (same badge, same rule).
+// attribution, ADR-0007), else Plugin when any occurrence is plugin-bundled
+// (ADR-0018), else Personal when any occurrence matches the ADR-0004
+// heuristic, else none. Exported for `page` (same badge, same rule).
 export function groupTier(occurrences, store) {
   if (occurrences.some((o) => o.tier === "external")) return "External";
+  if (occurrences.some((o) => o.tier === "plugin")) return "Plugin";
   if (occurrences.some((o) => isPersonal(o, store))) return "Personal";
   return null;
 }

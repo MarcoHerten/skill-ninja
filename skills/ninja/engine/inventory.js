@@ -1,9 +1,9 @@
 // The cached-inventory builder for `ninja init`.
 //
 // init analyzes the machine: it walks the configured scan roots (agent roots,
-// vaults, project dirs), discovers every Skill (a SKILL.md), detects
-// version/provenance from frontmatter where present, records broken symlinks,
-// and writes a cached inventory at ~/.skill-ninja/inventory.json.
+// plugin caches, vaults, project dirs), discovers every Skill (a SKILL.md),
+// detects version/provenance from frontmatter where present, records broken
+// symlinks, and writes a cached inventory at ~/.skill-ninja/inventory.json.
 //
 // The cache is the data layer `status` / `doctor` (later tickets) read. It is
 // regenerated wholesale on every init — there is no manually-maintained catalog
@@ -15,11 +15,12 @@
 // earlier draft this was named `scope`; the rename is complete in code + schema.
 
 import { readdir, stat, lstat, realpath, mkdir, writeFile, readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, basename } from "node:path";
+import { join, basename, dirname } from "node:path";
 
 import { loadConfig } from "./config.js";
-import { agentRoot } from "./agents.js";
+import { agentRoot, pluginRoot } from "./agents.js";
 import { bodyHash } from "./hash.js";
 
 const CONFIG_DIR = ".skill-ninja";
@@ -154,6 +155,64 @@ function coerce(raw) {
   return v;
 }
 
+// --- plugin scan roots (ADR-0018) ---------------------------------------------
+
+// Manifest cascade: which file marks a directory as a plugin boundary, in
+// priority order, and how its plugin name is read. #1 is the Agent Plugins
+// 1.0.0 spec manifest (`plugin.json` at the plugin root: `$schema` + `name`);
+// #2-4 are the de-facto manifests of the pre-spec plugin caches (ADR-0018) —
+// all of which already keep skills in the same `skills/` subtree the spec
+// standardized on. Existence of ANY of them bounds a plugin; a malformed
+// manifest still bounds it (name falls back to pluginDirName), the same
+// best-effort-never-fatal stance as lockfile attribution.
+const PLUGIN_MANIFESTS = [
+  ["plugin.json", (m) => (typeof m?.name === "string" ? m.name : null)],
+  [".claude-plugin/plugin.json", (m) => (typeof m?.name === "string" ? m.name : null)],
+  [
+    ".zcode-plugin-seed.json",
+    (m) =>
+      typeof m?.plugin === "string" ? m.plugin : typeof m?.marketplace === "string" ? m.marketplace : null,
+  ],
+  ["package.json", (m) => (typeof m?.name === "string" ? m.name.replace(/^@[^/]+\//, "") : null)],
+];
+
+// Read + parse a JSON file; null for missing / unreadable / malformed.
+async function readJsonOrNull(path) {
+  try {
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+// The plugin name fallback when a manifest exists but yields none (missing or
+// unparseable): the boundary directory's basename — stepping past it when that
+// basename is just a version segment, as in the cache/<marketplace>/<plugin>/
+// <version>/ layout both pre-spec cache conventions use.
+function pluginDirName(dir) {
+  const base = basename(dir);
+  if (/^v?\d+(\.\d+)*$/.test(base)) return basename(dirname(dir));
+  return base;
+}
+
+/**
+ * Is this directory a plugin boundary, and if so under what name? A boundary
+ * is any directory carrying one of the PLUGIN_MANIFESTS files; the name comes
+ * from that manifest, falling back to pluginDirName. Returns null when the
+ * directory is no boundary.
+ * @param {string} dir The directory being walked.
+ * @param {Array<object>} entries Its readdir entries (existence is what bounds).
+ * @returns {Promise<string|null>} The plugin name, or null.
+ */
+async function pluginBoundary(dir, entries) {
+  for (const [file, nameOf] of PLUGIN_MANIFESTS) {
+    const first = file.split("/")[0];
+    if (!entries.some((e) => e.name === first)) continue;
+    return nameOf(await readJsonOrNull(join(dir, file))) ?? pluginDirName(dir);
+  }
+  return null;
+}
+
 // --- discovery ---------------------------------------------------------------
 
 /**
@@ -165,13 +224,22 @@ function coerce(raw) {
  * raised. `lstat` detects symlinks; following the link (`stat`) detects
  * brokenness via ENOENT.
  *
+ * Plugin roots (ADR-0018): inside a `plugin` scan root, a directory carrying a
+ * plugin manifest is a boundary — the walk descends ONLY into its `skills/`
+ * subtree, because that is the sole home of skill content in the Agent Plugins
+ * 1.0.0 layout (`mcp.json`, the `com.example.*` client dirs, commands, and
+ * agents are not skills). Above a boundary (cache/marketplace/version wrapper
+ * dirs) the walk descends generically, carrying the nearest boundary's name as
+ * the plugin context for attribution.
+ *
  * @param {{kind:string, ref:string, root:string}} scanRoot The scan-root descriptor.
  * @param {string} rootPath The directory to walk (starts at scanRoot.root).
  * @param {object} attribution skills.sh lockfile attribution for this root
  *   (name -> {source, computedHash}); empty when no lockfile applies.
  * @param {object} out Accumulator: `{ skills: [], broken: [] }`.
+ * @param {string|null} [pluginName] Nearest plugin-boundary name (plugin roots only).
  */
-async function scanRootTree(scanRoot, rootPath, attribution, out) {
+async function scanRootTree(scanRoot, rootPath, attribution, out, pluginName = null) {
   let entries;
   try {
     entries = await readdir(rootPath, { withFileTypes: true });
@@ -179,6 +247,18 @@ async function scanRootTree(scanRoot, rootPath, attribution, out) {
     // A scan root whose root is missing / unreadable contributes nothing.
     if (err && (err.code === "ENOENT" || err.code === "ENOTDIR")) return;
     throw err;
+  }
+
+  // A plugin manifest bounds a plugin: only skills/ can hold skills.
+  if (scanRoot.kind === "plugin") {
+    const boundary = await pluginBoundary(rootPath, entries);
+    if (boundary !== null) {
+      const skillsDir = join(rootPath, "skills");
+      if (existsSync(skillsDir)) {
+        await scanRootTree(scanRoot, skillsDir, attribution, out, boundary);
+      }
+      return;
+    }
   }
 
   // Does this directory itself contain a SKILL.md?
@@ -197,7 +277,7 @@ async function scanRootTree(scanRoot, rootPath, attribution, out) {
       throw err;
     }
     if (resolved.isFile()) {
-      out.skills.push(await describeSkill(skillFile, rootPath, scanRoot, attribution));
+      out.skills.push(await describeSkill(skillFile, rootPath, scanRoot, attribution, pluginName));
       return; // do not descend — subdirs are this skill's bundled assets
     }
   }
@@ -219,14 +299,14 @@ async function scanRootTree(scanRoot, rootPath, attribution, out) {
         throw err;
       }
       if (target.isDirectory()) {
-        await scanRootTree(scanRoot, full, attribution, out);
+        await scanRootTree(scanRoot, full, attribution, out, pluginName);
       }
       // A symlink to a file that is not SKILL.md is irrelevant to discovery.
       continue;
     }
 
     if (entry.isDirectory()) {
-      await scanRootTree(scanRoot, full, attribution, out);
+      await scanRootTree(scanRoot, full, attribution, out, pluginName);
     }
   }
 }
@@ -236,7 +316,9 @@ async function scanRootTree(scanRoot, rootPath, attribution, out) {
 // the hash is the secondary identity signal that catches the same skill living
 // under a different name). `attribution` carries skills.sh lockfile data
 // (ADR-0007/0008): when the skill name is recorded in a lockfile, the occurrence
-// is tagged External. The stored scanRoot is kept lean (no attribution payload).
+// is tagged External. A plugin-root occurrence is tagged Plugin (ADR-0018),
+// attributed to the nearest plugin-boundary name — plugin-owned, audited, never
+// managed. The stored scanRoot is kept lean (no attribution payload).
 //
 // Symlink awareness (schema v2): each occurrence records whether its directory
 // is a symlink and its resolved (realpath) location. This is what lets `status`
@@ -244,7 +326,7 @@ async function scanRootTree(scanRoot, rootPath, attribution, out) {
 // those links point into the store (`add`) or into one of the agent roots
 // (skills.sh's install pattern) — apart from a loose-copy duplicate, and lets
 // `doctor` count independent content copies.
-async function describeSkill(skillFile, skillDir, scanRoot, attribution) {
+async function describeSkill(skillFile, skillDir, scanRoot, attribution, pluginName = null) {
   let frontmatter = {};
   let text = "";
   try {
@@ -283,7 +365,8 @@ async function describeSkill(skillFile, skillDir, scanRoot, attribution) {
     // copy's frontmatter, null = Active. External occurrences get "off"
     // overlaid from the ZCode ledger after the scan (see buildInventory).
     availability: frontmatter.availability ?? null,
-    tier: ext ? "external" : null,
+    tier: ext ? "external" : scanRoot.kind === "plugin" ? "plugin" : null,
+    plugin: scanRoot.kind === "plugin" ? pluginName : null,
     external: ext ? { source: ext.source, computedHash: ext.computedHash } : null,
     hash: bodyHash(text),
   };
@@ -359,6 +442,15 @@ export async function buildInventory(home = homedir()) {
     const rootLock = await readLockfile(join(root, "skills-lock.json"));
     scanRoots.push({ kind: "agent", ref: key, root, attribution: { ...globalLock, ...rootLock } });
   }
+  // Plugin caches (ADR-0018): a configured agent may also unpack plugins under
+  // its plugin cache root — probed by existence like the skills roots above.
+  // Skills bundled there are Plugin-tier occurrences: audited, never managed.
+  for (const key of config.agents) {
+    const root = pluginRoot(key, home);
+    if (root && existsSync(root)) {
+      scanRoots.push({ kind: "plugin", ref: key, root, attribution: {} });
+    }
+  }
   for (const p of config.vaults) {
     scanRoots.push({ kind: "vault", ref: p, root: p, attribution: await readLockfile(join(p, "skills-lock.json")) });
   }
@@ -389,7 +481,10 @@ function finalizeInventory(scanRoots, out) {
     byScanRoot[key] = (byScanRoot[key] ?? 0) + 1;
   }
   return {
-    version: 4,
+    // Schema v5 (ADR-0018): adds the `plugin` scan-root kind and the
+    // Plugin-tier occurrence (`tier: "plugin"`, `plugin: <name|null>`).
+    // Additive over v4 — consumers key off fields, never off completeness.
+    version: 5,
     generatedAt: new Date().toISOString(),
     counts: {
       skills: out.skills.length,

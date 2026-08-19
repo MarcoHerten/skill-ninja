@@ -42,6 +42,11 @@ const AGENT_LABELS = {
 export function scanRootLabel(scanRoot) {
   if (!scanRoot) return "(unknown scan root)";
   if (scanRoot.kind === "agent") return AGENT_LABELS[scanRoot.ref] ?? `${scanRoot.ref} root`;
+  // "Claude root" -> "Claude plugins": the plugin cache of the same agent.
+  if (scanRoot.kind === "plugin") {
+    const label = AGENT_LABELS[scanRoot.ref] ?? `${scanRoot.ref} root`;
+    return `${label.replace(/ root$/, "")} plugins`;
+  }
   if (scanRoot.kind === "vault") return `vault ${scanRoot.ref}`;
   if (scanRoot.kind === "project") return `project ${scanRoot.ref}`;
   if (scanRoot.kind === "store") return "canonical store";
@@ -51,9 +56,10 @@ export function scanRootLabel(scanRoot) {
 /**
  * Compact provenance/tier summary. An External skill (attributed to skills.sh via
  * its lockfile, ADR-0007/0008) is reported as external + its skills.sh source;
- * otherwise the frontmatter provenance is summarized, with "provenance unknown"
- * when absent or empty.
- * @param {object} occ A skill occurrence (uses tier / external / provenance).
+ * a Plugin skill (bundled in an agent plugin, ADR-0018) as plugin-bundled + the
+ * plugin's name; otherwise the frontmatter provenance is summarized, with
+ * "provenance unknown" when absent or empty.
+ * @param {object} occ A skill occurrence (uses tier / external / plugin / provenance).
  * @returns {string}
  */
 export function provenanceSummary(occ) {
@@ -61,6 +67,9 @@ export function provenanceSummary(occ) {
     const bits = ["external"];
     if (occ.external.source) bits.push(`from ${occ.external.source}`);
     return bits.join(", ");
+  }
+  if (occ?.tier === "plugin") {
+    return occ.plugin ? `plugin-bundled in '${occ.plugin}'` : "plugin-bundled";
   }
   const provenance = occ?.provenance;
   if (!provenance) return "provenance unknown";
@@ -73,10 +82,11 @@ export function provenanceSummary(occ) {
 
 // Personal-tier heuristic (ADR-0004): a skill occurrence is Personal if it lives
 // under the configured canonical store path, or its provenance.source is
-// "authored". External skills (owned by skills.sh) are never Personal.
-// Exported for `page`, which badges each skill's tier with the same rule.
+// "authored". External skills (owned by skills.sh) and Plugin skills (owned by
+// the agent's plugin system) are never Personal. Exported for `page`, which
+// badges each skill's tier with the same rule.
 export function isPersonal(occ, store) {
-  if (occ.tier === "external") return false;
+  if (occ.tier === "external" || occ.tier === "plugin") return false;
   if (store) {
     const prefix = store.endsWith("/") ? store : store + "/";
     if (occ.dir === store || occ.dir.startsWith(prefix)) return true;
@@ -114,7 +124,10 @@ function isLinkedSpread(occurrences) {
 // Group per-occurrence entries by name -> { name, occurrences, duplicate,
 // linkedSpread, hashDuplicate }. A group is a name-duplicate when the same name
 // lives in more than one location (the primary identity signal) — unless the
-// spread is linked (one canonical copy + links into it, the healthy state). It
+// spread is linked (one canonical copy + links into it, the healthy state), or
+// every occurrence is plugin-owned (ADR-0018: a plugin cache may legitimately
+// hold several versions of the same bundled skill; that spread belongs to the
+// agent's plugin manager, not to Skill Ninja's duplicate machinery). It
 // is a content-duplicate (hashDuplicate) when any of its occurrences shares a
 // content hash with an occurrence under a DIFFERENT name — the secondary signal
 // that catches the same skill living under a different name (CONTEXT.md
@@ -142,7 +155,7 @@ export function groupSkills(skills) {
     groups.push({
       name,
       occurrences,
-      duplicate: occurrences.length > 1,
+      duplicate: occurrences.length > 1 && !occurrences.every((o) => o.tier === "plugin"),
       linkedSpread: isLinkedSpread(occurrences),
       hashDuplicate,
     });

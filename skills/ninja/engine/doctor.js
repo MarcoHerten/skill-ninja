@@ -21,8 +21,9 @@
 // canonical copy plus links into it — `add`'s store links OR skills.sh's
 // install pattern (a real dir in one agent root, the other roots symlinked
 // into it) — is the healthy state and is never reported. skills.sh-owned
-// (External, lockfile-attributed) skills are audited but never re-linked
-// (ADR-0007): doctor proposes no repair for them at all.
+// (External, lockfile-attributed) and plugin-bundled (Plugin) skills are
+// audited but never re-linked (ADR-0007/0018): doctor proposes no repair for
+// them at all.
 
 import { readFile, readdir, mkdir, copyFile, unlink, lstat, realpath } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -138,10 +139,11 @@ export async function detect(inventory, config) {
   for (const name of order) {
     const group = byName.get(name);
 
-    // skills.sh-owned (External, lockfile-attributed) skills are audited, never
-    // re-linked (ADR-0007): no consolidation or orphan repair is proposed for
-    // them — managing those installs is `npx skills`'s job.
-    if (group.some((c) => c.occ.tier === "external")) continue;
+    // skills.sh-owned (External, lockfile-attributed) and plugin-bundled
+    // (Plugin) skills are audited, never re-linked (ADR-0007/0018): no
+    // consolidation or orphan repair is proposed for them — managing those
+    // installs is `npx skills`'s / the agent's plugin manager's job.
+    if (group.some((c) => c.occ.tier === "external" || c.occ.tier === "plugin")) continue;
 
     const loose = group.filter((c) => c.kind === "loose");
 

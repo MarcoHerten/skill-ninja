@@ -59,7 +59,7 @@ test("init captures category and description from frontmatter, null when absent"
     assert.equal(exitCode, 0);
 
     const cache = await readInventory(sb.home);
-    assert.equal(cache.version, 4, `expected inventory schema v4, got: ${cache.version}`);
+    assert.equal(cache.version, 5, `expected inventory schema v5, got: ${cache.version}`);
     const byName = Object.fromEntries(cache.skills.map((s) => [s.name, s]));
     assert.equal(byName.categorized.category, "Marketing & Social");
     assert.equal(byName.categorized.description, "Writes LinkedIn posts from a topic.");

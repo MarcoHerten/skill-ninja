@@ -64,3 +64,28 @@ export function discoverAgents(home) {
   }
   return installed;
 }
+
+// Plugin cache roots (ADR-0018): where each agent's plugin system unpacks
+// plugins under $HOME. Plugins bundle skills in a `skills/` subtree — the
+// layout the vendor-neutral Agent Plugins 1.0.0 spec standardized (steering
+// committee: Amazon, Cursor, Microsoft, OpenAI, Vercel; Google joined 2026),
+// and the pre-spec caches already use. The spec deliberately defines no
+// install location, so this map holds the verified de-facto cache roots and
+// grows as clients adopt. Only the CACHE tree is scanned — a sibling
+// `marketplaces/` tree holds the same plugins again as source clones, and
+// scanning both would count every bundled skill twice.
+export const PLUGIN_ROOTS = {
+  claude: ".claude/plugins/cache",
+  zcode: ".zcode/cli/plugins/cache",
+};
+
+/**
+ * Resolve an agent's plugin cache root under a given $HOME (ADR-0018).
+ * @param {string} key Agent key (e.g. "claude").
+ * @param {string} home The $HOME to resolve against.
+ * @returns {string|null} Absolute plugin root path, or null if the agent has none.
+ */
+export function pluginRoot(key, home) {
+  const sub = PLUGIN_ROOTS[key];
+  return sub ? join(home, sub) : null;
+}

@@ -393,9 +393,12 @@ function resolveSelection(opts, inventory, config, collections) {
 
 // Which mechanism a skill is switched through: External attribution wins over
 // store presence (a skills.sh-owned name is never stamped even if a stale
-// store copy exists — doctor's ownership rule).
+// store copy exists — doctor's ownership rule), and Plugin ownership wins over
+// both (ADR-0018: the plugin cache is the plugin manager's — a stamp or unlink
+// there would be reverted on the next plugin update).
 function classifyGroup(group, config) {
   if (group.occurrences.some((o) => o.tier === "external")) return "external";
+  if (group.occurrences.some((o) => o.tier === "plugin")) return "plugin";
   if (config.store && existsSync(join(config.store, group.name, "SKILL.md"))) return "personal";
   return "unknown";
 }
@@ -481,6 +484,17 @@ export async function availabilityCommand(command, args) {
   }
 
   const kinds = new Map(selected.map((g) => [g.name, classifyGroup(g, config)]));
+  // Plugin-bundled skills are switched through the agent's plugin channel,
+  // never through Skill Ninja (ADR-0018) — a stamp or unlink inside the plugin
+  // cache would be reverted on the next plugin update.
+  const pluginOwned = [...kinds].filter(([, k]) => k === "plugin").map(([n]) => n);
+  if (pluginOwned.length) {
+    err.write(
+      `Plugin-bundled skills are managed by the agent's plugin system: ${pluginOwned.join(", ")} (ADR-0018).\n` +
+        "Disable or update them through the plugin channel instead.\n",
+    );
+    return 2;
+  }
   const unmanageable = [...kinds].filter(([, k]) => k === "unknown").map(([n]) => n);
   if (unmanageable.length) {
     err.write(
