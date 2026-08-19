@@ -440,110 +440,307 @@ export async function renderStatusPage(inventory, config, collections = {}) {
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
-    color: #1d2430;
-    background: #f4f6f8;
+    font: 14.5px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #0f172a;
+    background: #f8fafc;
+    -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 920px; margin: 0 auto; padding: 32px 20px 48px; }
-  h1 { margin: 0 0 4px; font-size: 26px; }
-  h2 { font-size: 19px; margin: 30px 0 10px; padding: 10px 0 8px;
-       position: sticky; top: 0; z-index: 2; background: #f4f6f8;
-       border-bottom: 1px solid #e3e8ee; }
-  .meta { margin: 2px 0; color: #5b6572; font-size: 13.5px; }
-  .summary { margin: 14px 0 0; padding: 12px 16px; background: #eef2f6; border-radius: 10px; font-size: 15px; }
-  /* The availability cockpit (ADR-0014): search + filters + checkbox bulk
-     selection that generates a copyable ninja command. Inline script, still
-     no network / server / external assets (ADR-0011 amendment). */
-  .controls { margin: 18px 0 0; padding: 14px 16px; background: #fff; border: 1px solid #e3e8ee;
-              border-radius: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-  .controls input[type="search"] { flex: 1 1 220px; padding: 8px 12px; font: inherit;
-              border: 1px solid #d4dae2; border-radius: 8px; }
-  .controls select { padding: 8px 10px; font: inherit; border: 1px solid #d4dae2; border-radius: 8px;
-              background: #fff; max-width: 200px; }
-  #count { color: #5b6572; font-size: 13.5px; flex-basis: 100%; }
-  .bulk { margin: 10px 0 0; padding: 14px 16px; background: #fff; border: 1px solid #e3e8ee;
-          border-radius: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-  .bulk label { color: #5b6572; font-size: 14px; }
-  .bulk button { padding: 7px 14px; font: inherit; font-size: 14px; border: 1px solid #d4dae2;
-          border-radius: 8px; background: #f1f4f7; cursor: pointer; }
-  .bulk button.state.active { background: #1d2430; color: #fff; border-color: #1d2430; }
-  #cmd { flex: 1 1 260px; padding: 8px 12px; font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-          border: 1px dashed #c3cbd6; border-radius: 8px; background: #fafbfc; color: #1d2430; }
-  /* Collapsible skill cards: the summary carries the pick checkbox, name +
-     badges + the clamped description, the locations expand on click. */
-  details.skill { background: #fff; border: 1px solid #e3e8ee; border-radius: 12px; padding: 0 18px; margin: 10px 0; }
-  details.skill > summary { cursor: pointer; list-style: none; padding: 13px 0 11px; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  header { margin-bottom: 24px; }
+  .header-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 24px 28px;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    margin-bottom: 24px;
+  }
+  .title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .badge-ninja {
+    background: #eef2ff;
+    color: #4338ca;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 9999px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .meta { margin: 0; color: #64748b; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .summary {
+    margin: 14px 0 0;
+    padding: 12px 18px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    font-size: 14.5px;
+    color: #334155;
+    font-weight: 500;
+  }
+
+  /* Sticky Cockpit Controls */
+  .cockpit {
+    position: sticky;
+    top: 16px;
+    z-index: 100;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 16px 20px;
+    margin-bottom: 32px;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+  }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .controls input[type="search"] {
+    flex: 1 1 240px;
+    padding: 9px 14px;
+    font: inherit;
+    font-size: 13.5px;
+    color: #0f172a;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    outline: none;
+    transition: all 0.15s ease;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  }
+  .controls input[type="search"]:focus {
+    border-color: #4338ca;
+    box-shadow: 0 0 0 3px rgba(67, 56, 202, 0.12);
+  }
+  .controls select {
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 13.5px;
+    color: #0f172a;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    outline: none;
+    cursor: pointer;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  }
+  .controls select:focus { border-color: #4338ca; }
+  #count { color: #64748b; font-size: 13px; font-weight: 500; margin-left: auto; }
+
+  .bulk {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+  .bulk label { color: #475569; font-size: 13.5px; font-weight: 500; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .state-toggle { display: inline-flex; background: #f1f5f9; padding: 3px; border-radius: 10px; border: 1px solid #e2e8f0; }
+  .bulk button.state {
+    padding: 5px 14px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: #64748b;
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .bulk button.state.active { background: #ffffff; color: #4338ca; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
+  #cmd {
+    flex: 1 1 260px;
+    padding: 8px 14px;
+    font: 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 10px;
+    color: #0f172a;
+    outline: none;
+  }
+  #copy {
+    padding: 8px 18px;
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #ffffff;
+    background: #4338ca;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    transition: all 0.15s ease;
+  }
+  #copy:hover { background: #3730a3; transform: translateY(-1px); }
+
+  /* Sections */
+  .cat-section { margin-bottom: 36px; }
+  h2 {
+    font-size: 17px;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #e2e8f0;
+  }
+
+  /* Collapsible skill cards */
+  details.skill {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    transition: all 0.2s ease;
+  }
+  details.skill:hover { border-color: #cbd5e1; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+  details.skill[open] { border-color: #4338ca; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+  details.skill > summary { cursor: pointer; list-style: none; padding: 16px 20px; }
   details.skill > summary::-webkit-details-marker { display: none; }
-  details.skill > summary::before { content: "\\25B8"; color: #98a2b0; display: inline-block; width: 1.2em; }
+  details.skill > summary::before { content: "\\25B8"; color: #94a3b8; display: inline-block; width: 1.2em; font-size: 14px; }
   details.skill[open] > summary::before { content: "\\25BE"; }
-  details.skill > summary h3 { display: inline; margin: 0; font-size: 16.5px; }
-  input.pick { margin-right: 10px; transform: translateY(1px); cursor: pointer; }
-  .desc { margin: 5px 0 0 1.2em; color: #3d4754; font-size: 14px;
-          display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  details.skill > summary h3 { display: inline; margin: 0; font-size: 16px; font-weight: 600; color: #0f172a; }
+
+  input.pick { margin-right: 10px; transform: translateY(1px); cursor: pointer; width: 16px; height: 16px; accent-color: #4338ca; }
+  .desc {
+    margin: 8px 0 0 2.2em;
+    color: #475569;
+    font-size: 14px;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
   details.skill[open] .desc { display: block; overflow: visible; }
-  .tag { font-size: 12.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
-  .tag-spread { color: #10603e; background: #e2f5ea; }
-  .tag-duplicate { color: #8a4b08; background: #fdf0dd; }
-  .tag-broken { color: #a11c1c; background: #fbe4e4; }
-  .tag-manual { color: #8a4b08; background: #fdf0dd; }
-  .tag-off { color: #a11c1c; background: #fbe4e4; }
-  .tag-stored { color: #47525f; background: #e8ecf1; }
-  .tier { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
-          color: #47525f; background: #e8ecf1; padding: 2px 8px; border-radius: 999px; }
-  /* The per-skill copy-to-chat button (story #54): pill-sized, sits directly
-     behind the name; "copied ✓" (green, .ok) confirms for a moment. */
-  button.copy-skill { margin-left: 8px; padding: 2px 10px; font-family: inherit; font-size: 11.5px;
-          font-weight: 600; color: #47525f; background: #f1f4f7; border: 1px solid #d4dae2;
-          border-radius: 999px; cursor: pointer; vertical-align: 1px; }
-  button.copy-skill:hover { background: #e3e8ee; }
-  button.copy-skill.ok { color: #10603e; background: #e2f5ea; border-color: #b7e4cd; }
+
+  /* Tags & Badges */
+  .tag { font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 9999px; white-space: nowrap; }
+  .tag-spread { color: #059669; background: #ecfdf5; }
+  .tag-duplicate { color: #d97706; background: #fffbeb; }
+  .tag-broken { color: #dc2626; background: #fef2f2; }
+  .tag-manual { color: #d97706; background: #fffbeb; }
+  .tag-off { color: #dc2626; background: #fef2f2; }
+  .tag-stored { color: #475569; background: #f1f5f9; }
+  .tier {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #4338ca;
+    background: #eef2ff;
+    padding: 2px 9px;
+    border-radius: 9999px;
+  }
+
+  /* Copy skill button */
+  button.copy-skill {
+    margin-left: 8px;
+    padding: 3px 10px;
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #64748b;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 9999px;
+    cursor: pointer;
+    vertical-align: 1px;
+    transition: all 0.15s ease;
+  }
+  button.copy-skill:hover { background: #e2e8f0; color: #0f172a; }
+  button.copy-skill.ok { color: #059669; background: #ecfdf5; border-color: #a7f3d0; }
+
   pre.skill-md { display: none; }
-  ul.locations { list-style: none; margin: 4px 0 0; padding: 2px 0 12px 1.2em; }
-  li.location { padding: 8px 0; border-top: 1px dashed #e6eaf0; }
-  .loc-line { font-size: 14.5px; }
+  ul.locations {
+    list-style: none;
+    margin: 0;
+    padding: 12px 20px 18px 2.8em;
+    border-top: 1px solid #e2e8f0;
+    background: #fafafa;
+    border-bottom-left-radius: 12px;
+    border-bottom-right-radius: 12px;
+  }
+  li.location { padding: 8px 0; border-top: 1px dashed #e2e8f0; }
+  li.location:first-child { border-top: none; }
+  .loc-line { font-size: 13.5px; color: #0f172a; }
   .root { font-weight: 600; }
-  code.path { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px;
-              background: #f1f4f7; padding: 1px 6px; border-radius: 6px; word-break: break-all; }
-  .arrow { color: #5b6572; }
-  .loc-meta { color: #5b6572; font-size: 13px; margin-top: 2px; }
+  code.path {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    background: #ffffff;
+    color: #334155;
+    padding: 2px 8px;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+    word-break: break-all;
+  }
+  .arrow { color: #64748b; }
+  .loc-meta { color: #64748b; font-size: 12.5px; margin-top: 2px; }
+
   ul.broken { list-style: none; margin: 0; padding: 0; }
-  ul.broken li { background: #fff; border: 1px solid #f0d4d4; border-radius: 10px; padding: 10px 14px; margin: 8px 0; }
-  .empty { color: #5b6572; font-style: italic; }
-  footer { margin-top: 40px; color: #7a8494; font-size: 13px; }
+  ul.broken li { background: #ffffff; border: 1px solid #fecaca; border-radius: 12px; padding: 12px 18px; margin: 8px 0; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
+  .empty { color: #64748b; font-style: italic; }
+  footer { margin-top: 60px; text-align: center; color: #64748b; font-size: 13px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>Skill Ninja status</h1>
-${generatedAt}    <p class="summary">${escapeHtml(summarySentence(totals))}</p>
-    <div class="controls">
-      <input id="q" type="search" placeholder="Search name, description, category…">
-      <select id="f-avail" aria-label="filter by availability">
-        <option value="all">availability: all</option>
-        <option value="active">active</option>
-        <option value="manual">manual</option>
-        <option value="off">off</option>
-        <option value="stored">stored — not linked</option>
-      </select>
-      <select id="f-tier" aria-label="filter by tier">
-        <option value="all">tier: all</option>
-        <option value="personal">Personal</option>
-        <option value="external">External</option>
-        <option value="plugin">Plugin</option>
-      </select>
-      <select id="f-cat" aria-label="filter by category">
-        <option value="all">category: all</option>
-${categoryOptions}      </select>
-${collectionSelect}      <span id="count"></span>
+    <div class="header-card">
+      <div class="title-row">
+        <h1>Skill Ninja status <span class="badge-ninja">Dashboard</span></h1>
+      </div>
+${generatedAt}      <p class="summary">${escapeHtml(summarySentence(totals))}</p>
     </div>
-    <div class="bulk">
-      <label><input type="checkbox" id="select-all"> select all shown</label>
-      <button class="state" data-state="off">off</button>
-      <button class="state" data-state="manual">manual</button>
-      <button class="state active" data-state="on">on</button>
-      <input id="cmd" readonly placeholder="select skills below, then copy the generated command">
-      <button id="copy">Copy</button>
+    <div class="cockpit">
+      <div class="controls">
+        <input id="q" type="search" placeholder="Search name, description, category…">
+        <select id="f-avail" aria-label="filter by availability">
+          <option value="all">availability: all</option>
+          <option value="active">active</option>
+          <option value="manual">manual</option>
+          <option value="off">off</option>
+          <option value="stored">stored — not linked</option>
+        </select>
+        <select id="f-tier" aria-label="filter by tier">
+          <option value="all">tier: all</option>
+          <option value="personal">Personal</option>
+          <option value="external">External</option>
+          <option value="plugin">Plugin</option>
+        </select>
+        <select id="f-cat" aria-label="filter by category">
+          <option value="all">category: all</option>
+${categoryOptions}        </select>
+${collectionSelect}        <span id="count"></span>
+      </div>
+      <div class="bulk">
+        <label><input type="checkbox" id="select-all"> select all shown</label>
+        <div class="state-toggle">
+          <button class="state" data-state="off">off</button>
+          <button class="state" data-state="manual">manual</button>
+          <button class="state active" data-state="on">on</button>
+        </div>
+        <input id="cmd" readonly placeholder="select skills below, then copy the generated command">
+        <button id="copy">Copy</button>
+      </div>
     </div>
   </header>
   <main>
