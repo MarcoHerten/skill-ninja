@@ -21,10 +21,9 @@
 // can never diverge: same name grouping, same [linked spread] / [duplicate] /
 // [duplicate — same content, other name] tags, same Personal heuristic
 // (ADR-0004), same Availability rule (ADR-0014), and scan-root labels. Writes
-// exactly one file; the one landscape read it allows itself is the per-skill
-// SKILL.md body, fetched best-effort at render time as the copy-to-chat
-// payload (ADR-0011 update 2026-08-19) — the inventory cache records the
-// content hash, not the content.
+// exactly one file and reads nothing from the landscape — not even SKILL.md
+// bodies: the copy button behind each name copies the NAME (ADR-0011 second
+// update 2026-08-19), so the cached inventory is all the page needs.
 
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -94,22 +93,7 @@ function availabilityBadge(state) {
   return "";
 }
 
-// The copy-to-chat payload (story #54, ADR-0011 update 2026-08-19): each card
-// embeds its SKILL.md verbatim, read best-effort at render time from the
-// group's first occurrence — first-scanned wins, the same rule category and
-// description follow; linked spreads and duplicates share one file anyway. A
-// vanished or unreadable file renders no button and no payload.
-async function readSkillSource(group) {
-  const file = group.occurrences[0]?.file;
-  if (!file) return null;
-  try {
-    return await readFile(file, "utf8");
-  } catch {
-    return null;
-  }
-}
-
-function renderSkill(group, store, collections, source) {
+function renderSkill(group, store, collections) {
   const tier = groupTier(group.occurrences, store);
   const tierBadge = tier ? ` <span class="tier tier-${tier.toLowerCase()}">${tier}</span>` : "";
   const state = groupAvailability(group);
@@ -134,15 +118,14 @@ function renderSkill(group, store, collections, source) {
     ? `        <p class="desc">${escapeHtml(description)}</p>\n`
     : "";
 
-  // The copy-to-chat button sits directly behind the name (story #54): one
-  // click puts the full SKILL.md on the clipboard, ready to paste into any
-  // LLM chat. No readable source (file vanished since init) — no button.
+  // The copy button sits directly behind the name (story #54, revised
+  // 2026-08-19): one click puts the skill's NAME on the clipboard — the token
+  // you paste into a chat or terminal to invoke the skill. It renders from the
+  // cached data alone; no file read, no payload to embed.
   const copyButton =
-    source === null
-      ? ""
-      : `<button type="button" class="copy-skill" data-label="copy" ` +
-        `aria-label="Copy ${escapeHtml(group.name)} SKILL.md" ` +
-        `title="Copy this SKILL.md to the clipboard — paste it into any LLM chat">copy</button>`;
+    `<button type="button" class="copy-skill" data-label="copy" ` +
+    `aria-label="Copy skill name ${escapeHtml(group.name)}" ` +
+    `title="Copy the skill name to the clipboard">copy</button>`;
 
   const locations = group.occurrences.map((occ) => {
     const link =
@@ -167,10 +150,6 @@ function renderSkill(group, store, collections, source) {
     descriptionHtml +
     `        </summary>\n` +
     `        <ul class="locations">\n${locations.join("")}        </ul>\n` +
-    // The copy payload: the full SKILL.md, escaped (markup in a body is
-    // data), hidden — the cockpit script hands its textContent to the
-    // clipboard so the offline page needs no file access to copy it.
-    (source === null ? "" : `        <pre class="skill-md" hidden>${escapeHtml(source)}</pre>\n`) +
     `      </details>\n`
   );
 }
@@ -198,22 +177,12 @@ const COCKPIT_JS = `
 
   function norm(s) { return (s || "").toLowerCase(); }
 
-  // The searchable card text WITHOUT the embedded SKILL.md payload — search
-  // stays name/description/locations, not full-text body search (the payload
-  // would make almost every term match almost every skill).
-  function searchableText(card) {
-    var clone = card.cloneNode(true);
-    var payload = clone.querySelectorAll("pre.skill-md");
-    for (var i = 0; i < payload.length; i++) {
-      if (payload[i].parentNode) payload[i].parentNode.removeChild(payload[i]);
-    }
-    return clone.textContent;
-  }
-
   function cardMatches(card) {
     var t = norm(q.value);
     if (t) {
-      var hay = norm(card.getAttribute("data-name") + " " + searchableText(card));
+      // The haystack is the rendered card text — name, description,
+      // category, locations. Skill bodies are not on the page.
+      var hay = norm(card.getAttribute("data-name") + " " + card.textContent);
       if (hay.indexOf(t) === -1) return false;
     }
     if (fAvail.value !== "all" && card.getAttribute("data-availability") !== fAvail.value) return false;
@@ -309,10 +278,10 @@ const COCKPIT_JS = `
     }
   });
 
-  // Per-skill copy-to-chat (story #54): the button lives inside <summary>, so
-  // its click must not expand the card — cancelling the default action on the
-  // same (bubbled) event, the mirror of the pick-checkbox workaround above.
-  // The payload is the server-rendered SKILL.md in the card's hidden <pre>;
+  // Per-skill name copy (story #54, revised 2026-08-19): the button lives
+  // inside <summary>, so its click must not expand the card — cancelling the
+  // default action on the same (bubbled) event, the mirror of the pick
+  // checkbox workaround above. The payload is the card's data-name attribute;
   // clipboard only (no network), with an execCommand fallback for engines
   // without the async API. The label swap is the feedback.
   function fallbackCopy(text) {
@@ -343,9 +312,9 @@ const COCKPIT_JS = `
     btn.addEventListener("click", function (e) {
       e.preventDefault();
       var card = btn.closest("details.skill");
-      var payload = card ? card.querySelector("pre.skill-md") : null;
-      if (!payload) return;
-      copyToClipboard(payload.textContent, function (ok) {
+      var name = card ? card.getAttribute("data-name") : "";
+      if (!name) return;
+      copyToClipboard(name, function (ok) {
         btn.textContent = ok ? "copied ✓" : "copy failed";
         btn.classList.toggle("ok", ok);
         window.setTimeout(function () {
@@ -368,21 +337,13 @@ const COCKPIT_JS = `
  * @param {{store?:string|null}} config Resolved config (only `store` is used).
  * @param {object} [collections] The store-side collections map (pre-read by
  *   the command, ADR-0017 — render stays synchronous).
- * @returns {Promise<string>} The HTML document (no trailing newline). Async
- *   for the best-effort SKILL.md reads that become each card's copy payload.
+ * @returns {string} The HTML document (no trailing newline).
  */
-export async function renderStatusPage(inventory, config, collections = {}) {
+export function renderStatusPage(inventory, config, collections = {}) {
   const store = config?.store ?? null;
   const groups = groupSkills(inventory.skills ?? []);
   const broken = inventory.broken ?? [];
   const totals = summarize(groups, broken);
-
-  // The copy-to-chat payloads, pre-read before rendering so renderSkill stays
-  // synchronous (the same pre-read pattern the command applies to collections).
-  const sources = new Map();
-  for (const group of groups) {
-    sources.set(group.name, await readSkillSource(group));
-  }
 
   const generatedAt = inventory.generatedAt
     ? `  <p class="meta">inventory from ${escapeHtml(inventory.generatedAt)}</p>\n`
@@ -398,7 +359,7 @@ export async function renderStatusPage(inventory, config, collections = {}) {
           (section) =>
             `      <div class="cat-section">\n` +
             `      <h2>${escapeHtml(section.category)} (${section.skills.length})</h2>\n` +
-            section.skills.map((g) => renderSkill(g, store, collections, sources.get(g.name))).join("") +
+            section.skills.map((g) => renderSkill(g, store, collections)).join("") +
             `      </div>\n`,
         )
         .join("")
@@ -668,7 +629,6 @@ export async function renderStatusPage(inventory, config, collections = {}) {
   button.copy-skill:hover { background: #e2e8f0; color: #0f172a; }
   button.copy-skill.ok { color: #059669; background: #ecfdf5; border-color: #a7f3d0; }
 
-  pre.skill-md { display: none; }
   ul.locations {
     list-style: none;
     margin: 0;
@@ -800,7 +760,7 @@ export async function pageCommand(args) {
     }
   }
 
-  const html = await renderStatusPage(inventory, config, await readCollections(config));
+  const html = renderStatusPage(inventory, config, await readCollections(config));
   const outPath = statusPagePath(home);
   await writeFile(outPath, html + "\n", "utf8");
 

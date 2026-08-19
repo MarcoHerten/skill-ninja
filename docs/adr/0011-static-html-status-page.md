@@ -113,3 +113,26 @@ wanted export is the skill itself.
   search (the payload would make almost every term match almost every
   skill).
 
+## Update (2026-08-19, later the same day — the copy button copies the NAME)
+
+Owner feedback on the shipped button: pasting the full SKILL.md puts a wall
+of text on the clipboard — what is actually wanted is the skill's **name**,
+the token you paste into a chat or terminal to invoke the skill. Story #54
+is revised accordingly: one click behind the name copies the name, and the
+full-file export above is withdrawn — the dump buried the one token wanted
+on the clipboard (the name) in a wall of text.
+
+- **Payload embedding removed.** The name comes from the card's
+  `data-name` attribute (cache data), so the button renders from the
+  snapshot alone and `page` reads NOTHING from the landscape again — the
+  strict read-only property of the original decision is fully restored. A
+  SKILL.md deleted since `init` no longer drops its card's button.
+- **Size tradeoff void.** Without the embedded bodies the page shrinks back
+  to name/description/locations markup (~0.9 MB on the 412-skill reference
+  machine; the ~5.7 MB figure above is obsolete).
+- **Script behavior unchanged in kind.** The cockpit hands the name to the
+  clipboard API (with the `execCommand` fallback) and still cancels the
+  `<summary>` toggle on button clicks. Search stays
+  name/description/category/locations — now trivially, because bodies are
+  simply not on the page.
+
