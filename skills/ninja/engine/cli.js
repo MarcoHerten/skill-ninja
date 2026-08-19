@@ -7,11 +7,18 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 
-import { configPath, loadConfig } from "./config.js";
+import { configPath, loadConfig, readRawConfig, normalizeNameLists } from "./config.js";
 import { agentRoot } from "./agents.js";
 import { buildInventory, writeInventory, inventoryPath } from "./inventory.js";
 import { bootstrapConfig, seedConfig, ensureStore, resolveStoreArg } from "./discover.js";
+import {
+  writeStoreList,
+  commitStoreList,
+  COLLECTIONS_FILE,
+  PROFILES_FILE,
+} from "./storelists.js";
 import { renderStatus } from "./status.js";
 import { pageCommand } from "./page.js";
 import { catCommand, resolveVocabulary } from "./cat.js";
@@ -199,6 +206,10 @@ async function initCommand(args) {
     storeOverride = resolveStoreArg(opts.store, home);
     previousStore = await configuredStore(home);
   }
+  // ADR-0017: collections/profiles live store-side now. Capture any
+  // config-side lists from a pre-v1.5 setup BEFORE re-seeding overwrites the
+  // config — they migrate into the store files below.
+  const previousRaw = await readRawConfig(home);
   // DISCOVER + SEED: build/refresh the config from detection and write it.
   const config = await bootstrapConfig(home, storeOverride);
   await seedConfig(home, config);
@@ -206,6 +217,23 @@ async function initCommand(args) {
   const resolved = await loadConfig(home);
   // Canonical store + git init (first run works without a remote).
   await ensureStore(resolved.store);
+  // One-time list migration (ADR-0017): move captured config-side lists into
+  // the store files — only where no file exists yet, so a store that already
+  // traveled with a clone is never clobbered by stale local config.
+  const migrated = [];
+  if (previousRaw) {
+    for (const [key, file, label] of [
+      ["collections", COLLECTIONS_FILE, "collections"],
+      ["profiles", PROFILES_FILE, "profiles"],
+    ]) {
+      const lists = normalizeNameLists(previousRaw[key]);
+      if (Object.keys(lists).length > 0 && !existsSync(join(resolved.store, file))) {
+        await writeStoreList(resolved.store, file, lists);
+        commitStoreList(resolved.store, file, `migrate ${label} to store`);
+        migrated.push(label);
+      }
+    }
+  }
   // SCAN: the config now exists; build + cache the inventory from it.
   const inventory = await buildInventory(home);
   const cachePath = await writeInventory(inventory, home);
@@ -215,6 +243,11 @@ async function initCommand(args) {
   if (previousStore && previousStore !== resolved.store && existsSync(previousStore)) {
     process.stdout.write(
       `\nPrevious store left untouched at ${previousStore} — its skills, links, and history remain there; nothing was moved or copied.\n`,
+    );
+  }
+  if (migrated.length > 0) {
+    process.stdout.write(
+      `\nMigrated ${migrated.join(" and ")} from config.json into the store — they travel with the store repo now.\n`,
     );
   }
   return 0;

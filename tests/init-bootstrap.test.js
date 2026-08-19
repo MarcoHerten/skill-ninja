@@ -7,7 +7,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rm, cp } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
@@ -270,5 +270,87 @@ test("init --store switching away reports the previous store untouched", async (
     assert.doesNotMatch(second.stdout, /Previous store left untouched/, "no note for a vanished previous store");
   } finally {
     await sb.cleanup();
+  }
+});
+
+// ADR-0017: collections and profiles live store-side. init migrates
+// config-side lists from a pre-v1.5 setup into the store files — once; a
+// store file that already exists (e.g. it traveled with a clone) wins over
+// stale local config.
+test("init migrates config-side collections/profiles into the store (once)", async () => {
+  const sb = await createSandbox({
+    config: {
+      store: "~/.skill-ninja/store",
+      agents: ["claude"],
+      vaults: [],
+      projects: [],
+      collections: { nils: ["aphrodite*"] },
+      profiles: { content: ["alpha"] },
+    },
+  });
+  try {
+    await plantSkill(sb.home, ".claude/skills/aphrodite");
+    await plantSkill(sb.home, ".skill-ninja/store/alpha", { frontmatter: { name: "alpha" } });
+
+    const { stdout, exitCode } = await runCli(sb.home, ["init"]);
+    assert.equal(exitCode, 0, `stdout:\n${stdout}`);
+    assert.match(stdout, /Migrated collections and profiles from config\.json into the store/);
+
+    // The lists now live store-side; the config no longer carries them.
+    const collectionsFile = await readJson(join(sb.home, ".skill-ninja", "store", "collections.json"));
+    assert.deepEqual(collectionsFile.nils, ["aphrodite*"]);
+    const profilesFile = await readJson(join(sb.home, ".skill-ninja", "store", "profiles.json"));
+    assert.deepEqual(profilesFile.content, ["alpha"]);
+    const cfg = await readJson(join(sb.home, ".skill-ninja", "config.json"));
+    assert.equal(cfg.collections, undefined, "config key dropped on re-seed");
+    assert.equal(cfg.profiles, undefined, "config key dropped on re-seed");
+
+    // The views resolve them from the store.
+    const found = await runCli(sb.home, ["collection", "list", "nils"]);
+    assert.equal(found.exitCode, 0);
+    assert.match(found.stdout, /'nils' \(1 pattern/);
+
+    // Re-running init neither duplicates nor clobbers (the files exist).
+    await runCli(sb.home, ["init"]);
+    const again = await readJson(join(sb.home, ".skill-ninja", "store", "collections.json"));
+    assert.deepEqual(again.nils, ["aphrodite*"]);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// The travel story (ADR-0017): a store cloned to a fresh machine carries its
+// collections and profiles; `init` on the new machine picks them up without
+// any config-side data.
+test("a store cloned to a fresh machine brings its collections and profiles along", async () => {
+  const a = await createSandbox({ config: null });
+  const b = await createSandbox({ config: null });
+  try {
+    // Machine A: fresh init, then a collection + a profile saved into the store.
+    await plantSkill(a.home, ".claude/skills/aphrodite");
+    await runCli(a.home, ["init"]);
+    await plantSkill(a.home, "skill-ninja-store/aphrodite", { frontmatter: { name: "aphrodite" } });
+    const savedCollection = await runCli(a.home, ["collection", "save", "nils", "aphrodite*"]);
+    assert.equal(savedCollection.exitCode, 0, `stderr:\n${savedCollection.stderr}`);
+    const savedProfile = await runCli(a.home, ["profile", "save", "content", "aphrodite"]);
+    assert.equal(savedProfile.exitCode, 0, `stderr:\n${savedProfile.stderr}`);
+
+    // Machine B: "clone" the store (a plain recursive copy mirrors a git
+    // clone's content), then a fresh-machine init.
+    await cp(join(a.home, "skill-ninja-store"), join(b.home, "skill-ninja-store"), { recursive: true });
+    const init = await runCli(b.home, ["init"]);
+    assert.equal(init.exitCode, 0, `stdout:\n${init.stdout}`);
+
+    // The bundles traveled with the store — no config-side data involved.
+    const list = await runCli(b.home, ["collection", "list", "nils"]);
+    assert.equal(list.exitCode, 0);
+    assert.match(list.stdout, /'nils' \(1 pattern/);
+    const profiles = await runCli(b.home, ["profile", "list", "content"]);
+    assert.equal(profiles.exitCode, 0);
+    assert.match(profiles.stdout, /'content' \(1 skill\):/);
+    assert.match(profiles.stdout, /  aphrodite/);
+  } finally {
+    await a.cleanup();
+    await b.cleanup();
   }
 });

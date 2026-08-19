@@ -171,11 +171,10 @@ export async function bootstrapConfig(home, storeOverride = null) {
     // hand-edited list survives re-seeding like `projects` does (normalized by
     // the shared rule in config.js, including an explicitly empty list).
     categories: normalizeCategories(existing.categories),
-    // ADR-0014: profiles and the ZCode-disable ledger are user-only state —
-    // carried forward verbatim-through-normalization on re-seed, never
-    // detected and never dropped. Collections likewise (ADR-0015).
-    profiles: normalizeNameLists(existing.profiles),
+    // ADR-0014: the ZCode-disable ledger is user-only machine state — carried
+    // forward verbatim-through-normalization on re-seed, never detected and
+    // never dropped. Collections and profiles no longer live here (ADR-0017
+    // moved them store-side; `init` migrates any pre-v1.5 config data).
     zcode_disables: normalizeNameLists(existing.zcode_disables),
-    collections: normalizeNameLists(existing.collections),
   };
 }

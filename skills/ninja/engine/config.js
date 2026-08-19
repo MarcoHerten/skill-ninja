@@ -80,13 +80,11 @@ export function normalizeConfig(parsed, home) {
     // The category vocabulary for `cat` / `page` (Issue #10). Null = the
     // engine defaults (DEFAULT_CATEGORIES in cat.js) — resolveVocabulary picks.
     categories: normalizeCategories(parsed.categories),
-    // ADR-0014: named skill sets applied per project (`profile apply`), and the
-    // ledger of ZCode-config disable entries Skill Ninja wrote itself (so `on`
-    // removes only its own overrides, never the user's hand-set ones).
-    // ADR-0015: named personal filters over the inventory (`cat @<name>`).
-    profiles: normalizeNameLists(parsed.profiles),
+    // ADR-0014: the ledger of ZCode-config disable entries Skill Ninja wrote
+    // itself (so `on` removes only its own overrides, never the user's
+    // hand-set ones). Machine-specific — config-side forever (ADR-0017 moved
+    // collections/profiles store-side; this ledger must never travel).
     zcodeDisables: normalizeNameLists(parsed.zcode_disables),
-    collections: normalizeNameLists(parsed.collections),
   };
 }
 
