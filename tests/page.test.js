@@ -304,6 +304,36 @@ test("page cockpit: picking a single skill checkbox survives the summary click c
   }
 });
 
+// The cockpit's generated command must be chat-ready (owner feedback
+// 2026-08-19): it leads with the `/ninja` slash form, because the place the
+// copied line gets pasted is the agent chat, where `/ninja` is how the skill
+// is invoked — a bare `ninja …` would paste as an unknown command. Pinned at
+// the string level like the checkbox workaround above (node --test has no
+// DOM to click in).
+test("page cockpit: the generated bulk command leads with the /ninja slash form", async () => {
+  const sb = await createSandbox();
+  try {
+    await plantSkill(sb.home, ".claude/skills/product-manager", { body: "# PM\n" });
+    await plantSkill(sb.home, ".claude/skills/goal-limit", { body: "# Goal\n" });
+
+    const { stdout, exitCode } = await seedAndPage(sb);
+    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+    const html = await readPage(sb.home);
+
+    const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
+    assert.ok(
+      script.includes('"/ninja " + state'),
+      `the generated command must lead with /ninja — the chat-ready slash form`,
+    );
+    assert.ok(
+      !script.includes('"ninja " + state'),
+      `a bare ninja prefix would paste into the agent chat as an unknown command`,
+    );
+  } finally {
+    await sb.cleanup();
+  }
+});
+
 // Slice E — regeneration model: every invocation regenerates the file wholesale
 // (no watcher); after a landscape change + re-init, the page shows fresh data.
 test("page is regenerated on every call (overwritten with fresh inventory data)", async () => {

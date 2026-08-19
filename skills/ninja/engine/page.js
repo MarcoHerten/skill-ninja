@@ -10,10 +10,11 @@
 // (no watcher, no server); the command prints the path.
 //
 // The script only filters DOM nodes the server-side render produced and
-// strings together a `ninja on|manual|off --apply …` command from their data
+// strings together a `/ninja on|manual|off --apply …` command from their data
 // attributes — the page executes nothing and writes nothing. Bulk execution
 // stays in the engine behind `--apply` (two-phase approval: the copy-command
-// is the proposal, the CLI run is the approval).
+// is the proposal, the run — pasted into the agent chat as a slash command,
+// or in a terminal without the leading slash — is the approval).
 //
 // Like `status`, `page` does NOT re-scan the filesystem — it reads
 // ~/.skill-ninja/inventory.json (ADR-0003, schema v4). The grouping and
@@ -158,8 +159,8 @@ function renderSkill(group, store, collections) {
 // no template literals, so it can live inside the page's template literal
 // unescaped. It reads nothing, fetches nothing, writes nothing: filtering is
 // display:none over the server-rendered cards, and the "bulk edit" output is
-// a command line the user copies and runs through the engine (ADR-0011
-// amendment).
+// a command line the user copies and pastes into the agent chat, where the
+// slash form invokes this very skill (ADR-0011 amendment).
 const COCKPIT_JS = `
 (function () {
   "use strict";
@@ -218,9 +219,12 @@ const COCKPIT_JS = `
     }).map(function (card) { return card.getAttribute("data-name"); });
   }
 
+  // The command is chat-ready (owner request 2026-08-19): it leads with the
+  // /ninja slash form so a paste into the agent chat invokes the skill
+  // directly; a terminal run just drops the leading slash.
   function updateCmd() {
     var names = selected();
-    cmd.value = names.length ? "ninja " + state + " --apply " + names.join(" ") : "";
+    cmd.value = names.length ? "/ninja " + state + " --apply " + names.join(" ") : "";
     cmd.placeholder = names.length ? "" : "select skills below, then copy the generated command";
   }
 

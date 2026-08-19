@@ -136,3 +136,18 @@ on the clipboard (the name) in a wall of text.
   name/description/category/locations — now trivially, because bodies are
   simply not on the page.
 
+## Update (2026-08-19, evening — the copied command leads with the slash)
+
+Owner feedback on the cockpit's copy flow: the generated command started
+with `ninja`, but the place it gets pasted is the agent chat, where the
+skill is invoked as `/ninja` (SPEC.md) — every paste needed a hand-typed
+slash before it did anything. The generated command line now leads with
+the slash: `/ninja on|manual|off --apply …`, ready to paste straight into
+any agent chat. A terminal run simply drops the leading slash.
+
+Nothing else moves: the two-phase approval model is unchanged (the copied
+slash-command is still only the proposal; the engine behind `--apply`
+remains the sole executor), the page still executes nothing itself, and
+the per-skill name-copy button above is untouched — the name is the token
+that invokes *that* skill, and it needs no `ninja` around it.
+
