@@ -79,3 +79,37 @@ and strings together a command from their data attributes. Bulk execution
 stays in the engine behind `--apply`, preserving the two-phase approval
 model (the copy-command is the proposal, the CLI run with `--apply` the
 approval).
+## Update (2026-08-19 — per-skill copy-to-chat button, story #54)
+
+Each card now carries a small `copy` button **directly behind the skill
+name**: one click puts the skill's **full SKILL.md** (frontmatter + body) on
+the clipboard, ready to paste into any LLM chat (Claude, ChatGPT, Gemini, …).
+Using a skill should not require the agent that hosts it — the page's most
+wanted export is the skill itself.
+
+- **Payload embedded server-side.** The SKILL.md text is read best-effort at
+  `ninja page` render time from each group's first occurrence (first-scanned
+  wins, the rule category/description follow; linked spreads and duplicates
+  share one file) and embedded into the card as a hidden, escaped `<pre>`.
+  The inventory cache stays lean — it records the content hash, not the
+  content (ADR-0003 unchanged). A file that vanished since `init` renders no
+  button and no payload; `page` still writes exactly `status.html` — reading
+  the bodies is the one landscape read the command allows itself.
+- **Script behavior unchanged in kind.** The cockpit hands the payload's
+  `textContent` to the clipboard API (with an `execCommand` fallback for
+  engines without it) and cancels the `<summary>` toggle on button clicks —
+  the same event-cancellation problem the pick checkbox solves. No network,
+  no file access from the browser, no execution: still one self-contained
+  offline `file://` page.
+- **Escaping and data.** Bodies are data like names and paths: markup inside
+  a SKILL.md arrives escaped and can never inject elements. A body may
+  contain URLs — they are inert text, the page loads none of them.
+- **Size tradeoff.** The page grows by the embedded bodies (a few KB per
+  skill; ~0.9 MB → ~5.7 MB on the 412-skill reference machine). Accepted:
+  the alternative (fetching files from the browser) is blocked on `file://`
+  and would break the offline guarantee.
+- **Search scope.** The cockpit's search haystack excludes the payload —
+  searching stays name/description/category/locations, not full-text body
+  search (the payload would make almost every term match almost every
+  skill).
+

@@ -12,7 +12,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile, readdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
+import { readFile, readdir, realpath, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createSandbox, runCli, plantSkill, plantBrokenSymlink } from "./helpers/harness.js";
 
@@ -33,9 +33,11 @@ async function seedAndPage(sb, pageArgs = []) {
 
 // Each skill's <h3> text with inner markup stripped — the page's equivalent of
 // the CLI's per-skill line ("name [tags]"), so tag composition is asserted
-// exactly, not by loose substring presence.
+// exactly, not by loose substring presence. The copy button (story #54) is UI
+// chrome inside the <h3>, stripped first so headers keep reading "name [tags]".
 function skillHeaders(html) {
-  return [...html.matchAll(/<h3>(.*?)<\/h3>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").trim());
+  return [...html.matchAll(/<h3>(.*?)<\/h3>/g)]
+    .map((m) => m[1].replace(/<button\b[^>]*>.*?<\/button>/g, "").replace(/<[^>]+>/g, "").trim());
 }
 
 // Snapshot every file under a directory (path -> mtimeMs) to prove `page`
@@ -247,7 +249,7 @@ test("page renders collapsible skill cards: clamped description in the summary, 
     const cardIdx = html.indexOf('<details class="skill"');
     const card = html.slice(cardIdx, html.indexOf("</details>", cardIdx));
     const summary = card.slice(0, card.indexOf("</summary>"));
-    assert.ok(summary.includes("<h3>aphrodite</h3>"), `expected the name inside the summary`);
+    assert.ok(summary.includes("<h3>aphrodite<button"), `expected the name inside the summary`);
     assert.ok(summary.includes('class="desc"'), `expected the description inside the summary`);
     assert.ok(
       summary.includes("Trigger words repeat"),
@@ -261,7 +263,7 @@ test("page renders collapsible skill cards: clamped description in the summary, 
     );
 
     // A skill without a description renders no desc paragraph.
-    const bareIdx = html.indexOf("<h3>bare</h3>");
+    const bareIdx = html.indexOf("<h3>bare<button");
     const bareCard = html.slice(bareIdx, html.indexOf("</details>", bareIdx));
     assert.ok(!bareCard.includes('class="desc"'), `no empty desc paragraph for bare`);
   } finally {
@@ -322,6 +324,98 @@ test("page is regenerated on every call (overwritten with fresh inventory data)"
       html.includes("2 skills across 2 locations, 0 duplicated skills, 0 broken symlinks."),
       `expected refreshed totals`,
     );
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// Story #54 — the copy-to-chat button: directly behind each skill name, a
+// small "copy" button that puts the FULL SKILL.md (frontmatter + body) on the
+// clipboard for pasting into any LLM chat (Claude, ChatGPT, …). The payload is
+// embedded server-side as a hidden <pre>, so the offline page needs no file
+// access or network to copy it — and the cockpit script must cancel the card
+// toggle on button clicks (the summary-click problem, pinned string-level like
+// the checkbox workaround above).
+test("page puts a copy button behind each skill name and embeds the full SKILL.md as its payload", async () => {
+  const sb = await createSandbox();
+  try {
+    await plantSkill(sb.home, ".claude/skills/aphrodite", {
+      frontmatter: { name: "aphrodite", description: "Writes LinkedIn posts." },
+      body: "# Aphrodite body\nUse this skill in any chat.\n",
+    });
+
+    const { stdout, exitCode } = await seedAndPage(sb);
+    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+    const html = await readPage(sb.home);
+
+    // The button sits directly behind the name — before the badges/tags.
+    assert.ok(
+      html.includes('<h3>aphrodite<button type="button" class="copy-skill"'),
+      `expected the copy button directly behind the skill name`,
+    );
+
+    // The payload is the full file: frontmatter AND body, verbatim.
+    const cardIdx = html.indexOf('<details class="skill"');
+    const card = html.slice(cardIdx, html.indexOf("</details>", cardIdx));
+    assert.ok(card.includes('<pre class="skill-md" hidden>'), `expected the hidden payload in the card`);
+    assert.ok(card.includes("name: aphrodite"), `the frontmatter belongs to the payload`);
+    assert.ok(card.includes("# Aphrodite body"), `the body belongs to the payload`);
+    assert.ok(card.includes("Use this skill in any chat."), `the payload is verbatim, not a summary`);
+
+    // The wiring: the script copies the payload's text via the clipboard API
+    // and cancels the summary toggle — same preventDefault pin as the pick
+    // checkbox, or every copy click would also expand the card.
+    const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
+    assert.ok(script.includes("button.copy-skill"), `the script must wire the copy buttons`);
+    assert.ok(script.includes("payload.textContent"), `copying must use the payload's text`);
+    assert.ok(script.includes("e.preventDefault();"), `a copy click must not toggle the card`);
+    assert.ok(script.includes("navigator.clipboard"), `copying uses the clipboard API`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// The payload is data: markup inside a SKILL.md body must arrive escaped — it
+// can never inject elements into the page (and the page stays at exactly one
+// <script>, the cockpit's).
+test("page escapes the embedded SKILL.md payload (markup in a body is data)", async () => {
+  const sb = await createSandbox();
+  try {
+    await plantSkill(sb.home, ".claude/skills/spiky", {
+      body: "# Spiky\n\n<script>alert(1)</script> and <img src=x> plain text\n",
+    });
+
+    const { exitCode } = await seedAndPage(sb);
+    assert.equal(exitCode, 0);
+    const html = await readPage(sb.home);
+
+    assert.ok(html.includes("&lt;script&gt;alert(1)&lt;/script&gt;"), `expected the escaped script tag`);
+    assert.ok(!html.includes("<script>alert"), `the payload must never inject live markup`);
+    const scripts = [...html.matchAll(/<script\b[^>]*>/g)];
+    assert.equal(scripts.length, 1, `the cockpit stays the only script, got ${scripts.length}`);
+  } finally {
+    await sb.cleanup();
+  }
+});
+
+// The payload read is best-effort: a SKILL.md deleted after `init` (the page
+// shows the snapshot) renders its card WITHOUT button and payload — no crash,
+// no half-empty pre.
+test("page omits the copy button when the SKILL.md vanished since init", async () => {
+  const sb = await createSandbox();
+  try {
+    const planted = await plantSkill(sb.home, ".claude/skills/gone", { body: "# Gone\n" });
+    await runCli(sb.home, ["init"]);
+    await unlink(planted.file);
+
+    const { exitCode } = await runCli(sb.home, ["page"]);
+    assert.equal(exitCode, 0);
+    const html = await readPage(sb.home);
+    assert.ok(html.includes("<h3>gone"), `the card still renders from the snapshot`);
+    // The cockpit script/CSS mention these class names too — assert on the
+    // rendered markup forms, which only a readable source produces.
+    assert.ok(!html.includes('aria-label="Copy gone'), `no copy button without a readable source`);
+    assert.ok(!html.includes('<pre class="skill-md"'), `no payload without a readable source`);
   } finally {
     await sb.cleanup();
   }

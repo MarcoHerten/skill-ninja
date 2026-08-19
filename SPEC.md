@@ -93,6 +93,9 @@ Existing approaches are either ad-hoc (a hand-managed folder of symlinks) or ove
 52. As a user, I want Skill Ninja to never touch plugin-bundled skills: no repairs, no re-links, no availability switches — those belong to the agent's plugin system.
 53. As a user, I want a plugin's own version spread (several cached versions of the same bundled skill) not flagged as a duplicate — it is the plugin manager's, not mine.
 
+### Page copy-out (2026-08)
+54. As a user, I want a copy button directly behind each skill name on the status page, so I can paste the skill's full SKILL.md into any LLM chat (Claude, ChatGPT, Gemini, …) and use the skill there.
+
 ## Implementation Decisions
 
 - **Form factor — hybrid.** Skill Ninja ships as a skill (`SKILL.md`, the orchestration/interface layer the agent drives via slash commands) bundled with a **Node.js engine** that performs the deterministic work (inventory, hash, diff, doctor). The skill is the interface; the engine is the muscle.

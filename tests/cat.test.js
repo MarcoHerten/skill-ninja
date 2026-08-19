@@ -502,7 +502,13 @@ test("page groups skills under category headings in the same order as cat, with 
           .replace(/\s*\(\d+\)$/, "")
           .replace(/&amp;/g, "&"),
         names: [...chunk.matchAll(/<h3>(.*?)<\/h3>/g)].map((m) =>
-          m[1].replace(/<[^>]+>/g, "").trim().replace(/ \[[^\]]*\]/g, ""),
+          // The copy button (story #54) is UI chrome inside the h3 — strip it
+          // before the generic tag strip so names stay bare.
+          m[1]
+            .replace(/<button\b[^>]*>.*?<\/button>/g, "")
+            .replace(/<[^>]+>/g, "")
+            .trim()
+            .replace(/ \[[^\]]*\]/g, ""),
         ),
       }))
       // The page has one more h2 section (Broken symlinks) with no skills.
