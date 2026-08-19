@@ -129,8 +129,9 @@ export async function bootstrapConfig(home) {
     categories: normalizeCategories(existing.categories),
     // ADR-0014: profiles and the ZCode-disable ledger are user-only state —
     // carried forward verbatim-through-normalization on re-seed, never
-    // detected and never dropped.
+    // detected and never dropped. Collections likewise (ADR-0015).
     profiles: normalizeNameLists(existing.profiles),
     zcode_disables: normalizeNameLists(existing.zcode_disables),
+    collections: normalizeNameLists(existing.collections),
   };
 }

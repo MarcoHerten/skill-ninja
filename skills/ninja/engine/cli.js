@@ -21,6 +21,7 @@ import { ingestCommand } from "./ingest.js";
 import { availabilityCommand } from "./availability.js";
 import { findCommand } from "./find.js";
 import { profileCommand } from "./profile.js";
+import { collectionCommand } from "./collection.js";
 
 // The full command surface the skill exposes. Every command is wired to a
 // handler; COMMANDS also drives `help` so the CLI and SKILL.md agree on the
@@ -40,6 +41,7 @@ const COMMANDS = {
   manual: "Switch skills Manual: invocable by name, never auto-triggered (dry run; --apply executes).",
   find: "Search the cached inventory by skill name, description, or category.",
   profile: "Manage skill profiles: list | save | forget | apply | lift.",
+  collection: "Manage personal collections (local-only filters): list | save | forget — use with cat @<name>.",
   config: "Show Skill Ninja's configuration (try: config show).",
 };
 
@@ -254,6 +256,9 @@ async function dispatch(argv) {
   }
   if (command === "profile") {
     return profileCommand(rest);
+  }
+  if (command === "collection") {
+    return collectionCommand(rest);
   }
   if (command in COMMANDS) {
     // Known command not yet wired in this build.

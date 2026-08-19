@@ -32,6 +32,7 @@ import { inventoryPath, parseFrontmatter } from "./inventory.js";
 import { quoteValue } from "./hash.js";
 import { groupSkills, isPersonal, plural } from "./status.js";
 import { tryCommit, tryPush } from "./git.js";
+import { configuredCollections, resolveCollectionMembers } from "./collection.js";
 
 // The default category vocabulary, generalized from the reference taxonomy
 // (Issue #10). Config `categories: [...]` replaces it wholesale; stamps are
@@ -147,12 +148,14 @@ export function groupByCategory(groups, vocabulary = DEFAULT_CATEGORIES) {
  * Render the cached inventory as the catalog report.
  *
  * @param {object} inventory The cached inventory (schema v3).
- * @param {{store?:string|null, categories?:string[]|null}} config
+ * @param {{store?:string|null, categories?:string[]|null, collections?:object}} config
  * @param {string|null} [filter] Category filter term (case-insensitive
  *   substring) or null for the full catalog.
+ * @param {{collection?:{name:string, matched:number}}} [opts] Collection view
+ *   (ADR-0015): adds the `(collection: …)` header and the `cat @<name>` hint.
  * @returns {string} The report, with a trailing newline.
  */
-export function renderCatalog(inventory, config, filter = null) {
+export function renderCatalog(inventory, config, filter = null, opts = {}) {
   const store = config?.store ?? null;
   const vocabulary = resolveVocabulary(config);
   const allSections = groupByCategory(groupSkills(inventory.skills ?? []), vocabulary);
@@ -168,6 +171,9 @@ export function renderCatalog(inventory, config, filter = null) {
 
   const lines = ["Skill Ninja catalog"];
   if (inventory.generatedAt) lines.push(`(inventory from ${inventory.generatedAt})`);
+  if (opts.collection) {
+    lines.push(`(collection: ${opts.collection.name} — ${plural(opts.collection.matched, "skill")})`);
+  }
   if (filter) lines.push(`(filtering: ${filter})`);
 
   // "category" pluralizes irregularly — the shared plural() helper only
@@ -178,6 +184,13 @@ export function renderCatalog(inventory, config, filter = null) {
     `${plural(skillCount, "skill")} across ${categorized.length} ${categoryWord}, ` +
       `${plural(uncatCount, "uncategorized skill")}.`,
   );
+
+  // The full catalog advertises the configured collections (ADR-0015) — the
+  // `@<name>` filter is invisible otherwise.
+  const collectionNames = Object.keys(configuredCollections(config));
+  if (!filter && !opts.collection && collectionNames.length > 0) {
+    lines.push("", `collections configured: ${collectionNames.join(", ")} (filter with \`cat @<name>\`)`);
+  }
 
   if (filter && sections.length === 0) {
     const present = allSections.map((s) => s.category);
@@ -335,7 +348,7 @@ export async function catCommand(args) {
   const filter = args[0];
   if (args.length > 1 || (filter !== undefined && filter.startsWith("--"))) {
     err.write(`Unknown cat argument: ${filter}\n`);
-    err.write("Try: ninja cat [category] | ninja cat assign <name> <category>\n");
+    err.write("Try: ninja cat [category] | ninja cat @<collection> | ninja cat assign <name> <category>\n");
     return 2;
   }
 
@@ -358,6 +371,29 @@ export async function catCommand(args) {
   // Config feeds the tier badges (the canonical store path). Same fallback as
   // `status` when the config has vanished since init.
   const config = await loadConfigSoft(home, { store: null });
+
+  // `cat @<name>` — the collection view (ADR-0015): only the member skills,
+  // still grouped under their content categories (the collection is a filter,
+  // not a taxonomy).
+  if (filter !== undefined && filter.startsWith("@")) {
+    const cname = filter.slice(1);
+    const collections = configuredCollections(config);
+    const patterns = collections[cname];
+    if (!Array.isArray(patterns)) {
+      const present = Object.keys(collections);
+      out.write(
+        `No collection '${cname}'.` +
+          (present.length ? ` Collections present: ${present.join(", ")}.` : " (none saved — try `ninja collection save`).") +
+          "\n",
+      );
+      return 0;
+    }
+    const members = resolveCollectionMembers(patterns, inventory);
+    const names = new Set(members.map((g) => g.name));
+    const scoped = { ...inventory, skills: (inventory.skills ?? []).filter((s) => names.has(s.name)) };
+    out.write(renderCatalog(scoped, config, null, { collection: { name: cname, matched: members.length } }));
+    return 0;
+  }
 
   out.write(renderCatalog(inventory, config, filter ?? null));
   return 0;

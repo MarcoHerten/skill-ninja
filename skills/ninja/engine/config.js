@@ -83,8 +83,10 @@ export function normalizeConfig(parsed, home) {
     // ADR-0014: named skill sets applied per project (`profile apply`), and the
     // ledger of ZCode-config disable entries Skill Ninja wrote itself (so `on`
     // removes only its own overrides, never the user's hand-set ones).
+    // ADR-0015: named personal filters over the inventory (`cat @<name>`).
     profiles: normalizeNameLists(parsed.profiles),
     zcodeDisables: normalizeNameLists(parsed.zcode_disables),
+    collections: normalizeNameLists(parsed.collections),
   };
 }
 

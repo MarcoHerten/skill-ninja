@@ -33,6 +33,7 @@ import { inventoryPath, parseFrontmatter } from "./inventory.js";
 import { splitFrontmatter, quoteValue } from "./hash.js";
 import { groupSkills, isPersonal, groupAvailability } from "./status.js";
 import { groupCategory } from "./cat.js";
+import { configuredCollections, resolveCollectionMembers } from "./collection.js";
 import { linkSkill } from "./links.js";
 import { tryCommit, tryPush } from "./git.js";
 
@@ -322,7 +323,7 @@ function zcodePathsFor(group) {
 // --- the on / off / manual command ---------------------------------------------
 
 function parseSwitchArgs(args) {
-  const opts = { names: [], category: null, tier: null, except: [], apply: false };
+  const opts = { names: [], category: null, tier: null, collection: null, except: [], apply: false };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--apply") opts.apply = true;
@@ -334,6 +335,9 @@ function parseSwitchArgs(args) {
       if (opts.tier !== "personal") {
         return { error: `--tier must be personal (got '${opts.tier ?? ""}')` };
       }
+    } else if (a === "--collection") {
+      opts.collection = args[++i];
+      if (!opts.collection) return { error: "--collection needs a value" };
     } else if (a === "--except") {
       const v = args[++i];
       if (!v) return { error: "--except needs a comma-separated name list" };
@@ -347,9 +351,11 @@ function parseSwitchArgs(args) {
   return opts;
 }
 
-// Resolve the uniform selector set (names, --category, --tier, --except)
-// against the cached inventory. Explicit names restrict to themselves (AND
-// with the flags); unknown explicit names are reported as missing.
+// Resolve the uniform selector set (names, --category, --tier, --collection,
+// --except) against the cached inventory. Explicit names restrict to
+// themselves (AND with the flags); unknown explicit names are reported as
+// missing. An unknown --collection is a usage error (selectors are strict —
+// unlike the `cat @<name>` view, a bulk switch must never silently no-op).
 function resolveSelection(opts, inventory, config) {
   let groups = groupSkills(inventory.skills ?? []);
   if (opts.category) {
@@ -360,6 +366,24 @@ function resolveSelection(opts, inventory, config) {
   }
   if (opts.tier === "personal") {
     groups = groups.filter((g) => g.occurrences.some((o) => isPersonal(o, config.store)));
+  }
+  if (opts.collection) {
+    const collections = configuredCollections(config);
+    const patterns = collections[opts.collection];
+    if (!Array.isArray(patterns)) {
+      const present = Object.keys(collections);
+      return {
+        selected: [],
+        missing: [],
+        error:
+          `No collection '${opts.collection}'.` +
+          (present.length
+            ? ` Collections present: ${present.join(", ")}.`
+            : " (none saved — try `ninja collection save`)."),
+      };
+    }
+    const memberNames = new Set(resolveCollectionMembers(patterns, inventory).map((g) => g.name));
+    groups = groups.filter((g) => memberNames.has(g.name));
   }
   const missing = opts.names.filter((n) => !groups.some((g) => g.name === n));
   let selected = opts.names.length ? groups.filter((g) => opts.names.includes(g.name)) : groups;
@@ -389,7 +413,7 @@ export async function availabilityCommand(command, args) {
   const target = command === "on" ? "active" : command;
 
   const usage =
-    "Try: ninja on|off|manual <names…> [--category <c>] [--tier personal] [--except a,b] [--apply]";
+    "Try: ninja on|off|manual <names…> [--category <c>] [--tier personal] [--collection <name>] [--except a,b] [--apply]";
   const opts = parseSwitchArgs(args);
   if (opts.error) {
     err.write(`${opts.error}\n${usage}\n`);
@@ -427,7 +451,11 @@ export async function availabilityCommand(command, args) {
     return 2;
   }
 
-  const { selected, missing } = resolveSelection(opts, inventory, config);
+  const { selected, missing, error: selectionError } = resolveSelection(opts, inventory, config);
+  if (selectionError) {
+    err.write(`${selectionError}\n`);
+    return 2;
+  }
   if (missing.length) {
     err.write(
       `No skill named ${missing.map((n) => `'${n}'`).join(", ")} in the inventory.\n` +

@@ -8,8 +8,9 @@ import { homedir } from "node:os";
 
 import { loadConfig } from "./config.js";
 import { inventoryPath } from "./inventory.js";
-import { groupSkills, plural, groupAvailability, availabilityTag } from "./status.js";
+import { groupSkills, groupAvailability, availabilityTag } from "./status.js";
 import { groupByCategory, groupTier, groupDescription, oneLineDescription, resolveVocabulary } from "./cat.js";
+import { configuredCollections, resolveCollectionMembers } from "./collection.js";
 
 /**
  * Run `ninja find`. Returns the process exit code.
@@ -22,7 +23,7 @@ export async function findCommand(args) {
   const [term, ...rest] = args;
   if (!term || rest.length > 0) {
     err.write("find needs exactly one search term.\n");
-    err.write("Try: ninja find <term>\n");
+    err.write("Try: ninja find <term> | ninja find @<collection>\n");
     return 2;
   }
 
@@ -50,14 +51,36 @@ export async function findCommand(args) {
     else throw e;
   }
 
-  const needle = term.toLowerCase();
-  const groups = groupSkills(inventory.skills ?? []);
-  const matches = groups.filter((g) => {
-    const hay = [g.name, groupDescription(g.occurrences) ?? "", ...g.occurrences.map((o) => o.category ?? "")];
-    return hay.some((s) => s.toLowerCase().includes(needle));
-  });
+  // `find @<name>` — the collection view (ADR-0015): the member bundle as a
+  // flat, tagged list. `find <term>` searches names, descriptions, categories.
+  let matches;
+  let header;
+  if (term.startsWith("@")) {
+    const cname = term.slice(1);
+    const collections = configuredCollections(config);
+    const patterns = collections[cname];
+    if (!Array.isArray(patterns)) {
+      const present = Object.keys(collections);
+      out.write(
+        `No collection '${cname}'.` +
+          (present.length ? ` Collections present: ${present.join(", ")}.` : " (none saved — try `ninja collection save`).") +
+          "\n",
+      );
+      return 0;
+    }
+    matches = resolveCollectionMembers(patterns, inventory);
+    header = `Skill Ninja find — @${cname}`;
+  } else {
+    const needle = term.toLowerCase();
+    const groups = groupSkills(inventory.skills ?? []);
+    matches = groups.filter((g) => {
+      const hay = [g.name, groupDescription(g.occurrences) ?? "", ...g.occurrences.map((o) => o.category ?? "")];
+      return hay.some((s) => s.toLowerCase().includes(needle));
+    });
+    header = `Skill Ninja find — '${term}'`;
+  }
 
-  const lines = [`Skill Ninja find — '${term}'`];
+  const lines = [header];
   if (inventory.generatedAt) lines.push(`(inventory from ${inventory.generatedAt})`);
 
   if (matches.length === 0) {
@@ -66,7 +89,10 @@ export async function findCommand(args) {
     return 0;
   }
 
-  lines.push("", `${plural(matches.length, "match")}:`);
+  // "match" pluralizes irregularly — the shared plural() helper only appends
+  // "s", so this word is formed here.
+  const matchWord = matches.length === 1 ? "1 match" : `${matches.length} matches`;
+  lines.push("", `${matchWord}:`);
   const sections = groupByCategory(matches, resolveVocabulary(config));
   for (const section of sections) {
     lines.push("", `${section.category} (${section.skills.length}):`);

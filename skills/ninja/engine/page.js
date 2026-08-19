@@ -40,6 +40,7 @@ import {
   scanRootLabel,
   versionLine,
 } from "./status.js";
+import { collectionsForName, configuredCollections } from "./collection.js";
 
 const CONFIG_DIR = ".skill-ninja";
 const PAGE_FILE = "status.html";
@@ -91,12 +92,13 @@ function availabilityBadge(state) {
   return "";
 }
 
-function renderSkill(group, store) {
+function renderSkill(group, store, collections) {
   const tier = groupTier(group.occurrences, store);
   const tierBadge = tier ? ` <span class="tier tier-${tier.toLowerCase()}">${tier}</span>` : "";
   const state = groupAvailability(group);
   const availBadge = availabilityBadge(state);
   const category = group.occurrences.find((o) => o.category)?.category ?? "";
+  const memberships = collectionsForName(group.name, collections).join(",");
   // Tag order mirrors renderStatus: availability, linked spread else duplicate,
   // then the content-hash duplicate.
   const tags = [];
@@ -131,7 +133,7 @@ function renderSkill(group, store) {
 
   return (
     `      <details class="skill" data-name="${escapeHtml(group.name)}" data-category="${escapeHtml(category)}" ` +
-    `data-tier="${tier ? tier.toLowerCase() : ""}" data-availability="${state}">\n` +
+    `data-tier="${tier ? tier.toLowerCase() : ""}" data-availability="${state}" data-collections="${escapeHtml(memberships)}">\n` +
     `        <summary>\n` +
     `          <input type="checkbox" class="pick" data-name="${escapeHtml(group.name)}" aria-label="select ${escapeHtml(group.name)}">\n` +
     `          <h3>${escapeHtml(group.name)}${tierBadge}${availBadge}${tags.length ? " " + tags.join(" ") : ""}</h3>\n` +
@@ -155,6 +157,7 @@ const COCKPIT_JS = `
   var fAvail = document.getElementById("f-avail");
   var fTier = document.getElementById("f-tier");
   var fCat = document.getElementById("f-cat");
+  var fCol = document.getElementById("f-col");
   var count = document.getElementById("count");
   var selectAll = document.getElementById("select-all");
   var cmd = document.getElementById("cmd");
@@ -173,6 +176,10 @@ const COCKPIT_JS = `
     if (fAvail.value !== "all" && card.getAttribute("data-availability") !== fAvail.value) return false;
     if (fTier.value !== "all" && card.getAttribute("data-tier") !== fTier.value) return false;
     if (fCat.value !== "all" && card.getAttribute("data-category") !== fCat.value) return false;
+    if (fCol && fCol.value !== "all") {
+      var mine = (card.getAttribute("data-collections") || "").split(",");
+      if (mine.indexOf(fCol.value) === -1) return false;
+    }
     return true;
   }
 
@@ -205,7 +212,8 @@ const COCKPIT_JS = `
     cmd.placeholder = names.length ? "" : "select skills below, then copy the generated command";
   }
 
-  [q, fAvail, fTier, fCat].forEach(function (el) {
+  [q, fAvail, fTier, fCat, fCol].forEach(function (el) {
+    if (!el) return;
     el.addEventListener("input", applyFilter);
     el.addEventListener("change", applyFilter);
   });
@@ -264,6 +272,7 @@ const COCKPIT_JS = `
  */
 export function renderStatusPage(inventory, config) {
   const store = config?.store ?? null;
+  const collections = configuredCollections(config);
   const groups = groupSkills(inventory.skills ?? []);
   const broken = inventory.broken ?? [];
   const totals = summarize(groups, broken);
@@ -282,7 +291,7 @@ export function renderStatusPage(inventory, config) {
           (section) =>
             `      <div class="cat-section">\n` +
             `      <h2>${escapeHtml(section.category)} (${section.skills.length})</h2>\n` +
-            section.skills.map((g) => renderSkill(g, store)).join("") +
+            section.skills.map((g) => renderSkill(g, store, collections)).join("") +
             `      </div>\n`,
         )
         .join("")
@@ -291,6 +300,18 @@ export function renderStatusPage(inventory, config) {
   const categoryOptions = sections
     .map((s) => `        <option value="${escapeHtml(s.category)}">${escapeHtml(s.category)}</option>\n`)
     .join("");
+
+  // The collection filter (ADR-0015) — membership is computed server-side
+  // (data-collections per card); the cockpit only string-compares.
+  const collectionOptions = Object.keys(collections)
+    .map((name) => `        <option value="${escapeHtml(name)}">@${escapeHtml(name)}</option>\n`)
+    .join("");
+  const collectionSelect = collectionOptions
+    ? `      <select id="f-col" aria-label="filter by collection">\n` +
+      `        <option value="all">collection: all</option>\n` +
+      collectionOptions +
+      `      </select>\n`
+    : "";
 
   const brokenHtml = broken.length
     ? broken
@@ -398,7 +419,7 @@ ${generatedAt}    <p class="summary">${escapeHtml(summarySentence(totals))}</p>
       <select id="f-cat" aria-label="filter by category">
         <option value="all">category: all</option>
 ${categoryOptions}      </select>
-      <span id="count"></span>
+${collectionSelect}      <span id="count"></span>
     </div>
     <div class="bulk">
       <label><input type="checkbox" id="select-all"> select all shown</label>
