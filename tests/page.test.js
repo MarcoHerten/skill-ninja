@@ -269,6 +269,39 @@ test("page renders collapsible skill cards: clamped description in the summary, 
   }
 });
 
+// The cockpit's bulk selection: each card's pick checkbox lives inside the
+// <summary>, so cancelling the summary click (to keep the card from toggling)
+// also cancels the checkbox's own activation — the browser reverts the toggle
+// and no skill can be picked. node --test has no DOM to click in, so the
+// workaround is pinned at the string level: the script must re-apply the
+// checked state after the cancelled event has completed.
+test("page cockpit: picking a single skill checkbox survives the summary click cancellation", async () => {
+  const sb = await createSandbox();
+  try {
+    await plantSkill(sb.home, ".claude/skills/pickable", { body: "# Pickable\n" });
+
+    const { stdout, exitCode } = await seedAndPage(sb);
+    assert.equal(exitCode, 0, `stderr:\n${stdout}`);
+    const html = await readPage(sb.home);
+
+    const cardIdx = html.indexOf('<details class="skill"');
+    const card = html.slice(cardIdx, html.indexOf("</details>", cardIdx));
+    const summary = card.slice(0, card.indexOf("</summary>"));
+    assert.ok(
+      summary.includes('class="pick"'),
+      `the pick checkbox is expected inside the summary (the interaction the workaround targets)`,
+    );
+
+    const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
+    assert.ok(
+      script.includes("preventDefault") && script.includes("box.checked = !box.checked"),
+      `a cancelled summary click must re-apply the checkbox state afterwards, or picking a skill silently does nothing`,
+    );
+  } finally {
+    await sb.cleanup();
+  }
+});
+
 // Slice E — regeneration model: every invocation regenerates the file wholesale
 // (no watcher); after a landscape change + re-init, the page shows fresh data.
 test("page is regenerated on every call (overwritten with fresh inventory data)", async () => {

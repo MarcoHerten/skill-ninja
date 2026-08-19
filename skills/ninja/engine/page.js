@@ -218,14 +218,22 @@ const COCKPIT_JS = `
     el.addEventListener("change", applyFilter);
   });
 
-  // Clicking the card checkbox must not toggle the <details> expansion —
-  // preventDefault on the summary click handles the label/box pair.
+  // A click on the card checkbox must check the box but not toggle the
+  // <details> expansion. Cancelling the summary click is the only way to stop
+  // the expansion — but a cancelled click also cancels the checkbox's own
+  // activation (the browser reverts the pre-click toggle), so the intended
+  // state has to be re-applied once the event has fully completed.
   cards.forEach(function (card) {
     var summary = card.querySelector("summary");
-    summary.addEventListener("click", function (e) {
-      if (e.target && e.target.closest && e.target.closest("input.pick")) e.preventDefault();
-    });
     var box = card.querySelector("input.pick");
+    summary.addEventListener("click", function (e) {
+      if (!e.target || !e.target.closest || !e.target.closest("input.pick")) return;
+      e.preventDefault();
+      setTimeout(function () {
+        box.checked = !box.checked;
+        updateCmd();
+      }, 0);
+    });
     box.addEventListener("change", updateCmd);
   });
 
