@@ -44,15 +44,34 @@ Skills you installed via skills.sh stay owned by skills.sh — Skill Ninja watch
 
 ## Quick start
 
-The whole product runs inside your coding agent as slash commands. This is the intended workflow — from install to a clean, versioned skill landscape in a few minutes.
+The whole product runs inside your coding agent as slash commands. This is the intended workflow — from install to a clean, versioned skill landscape in a few minutes:
 
-### 1. Install (once)
-
-```bash
-npx skills add MarcoHerten/skill-ninja
+```
+install (once, global)
+   │
+   ▼
+npx skills add -g MarcoHerten/skill-ninja       — Skill Ninja arrives as a global skill
+   │
+   ▼
+/ninja init                                      — creates the config + your skill store
+   │
+   ▼
+/ninja status  ·  /ninja page                    — the whole landscape at a glance
+   │
+   ├─► /ninja doctor --apply                     — repair broken links and duplicates
+   ├─► git remote add … + push                   — private backup + browsable history
+   │
+   ▼
+/ninja add  ·  /ninja ingest  ·  /ninja diff     — day to day
 ```
 
-Yes — Skill Ninja is itself a skill. It arrives through the same door it later guards.
+### 1. Install (once, globally)
+
+```bash
+npx skills add -g MarcoHerten/skill-ninja
+```
+
+The `-g` makes it a **global skill** (user-level) — skills.sh's default is project-level, and Skill Ninja is the one skill you want everywhere: `/ninja` then works in every project and watches over your whole machine, not a single repo. And yes — Skill Ninja is itself a skill. It arrives through the same door it later guards.
 
 ### 2. Take stock: `init`, then `status`
 
@@ -150,10 +169,10 @@ The skill is invoked as `/ninja` (e.g. `/ninja init`). More detail in [`SPEC.md`
 ## Install
 
 ```bash
-npx skills add MarcoHerten/skill-ninja
+npx skills add -g MarcoHerten/skill-ninja
 ```
 
-Distribution via [skills.sh](https://skills.sh) (`npx skills`) — multi-agent targeting, global vs project scope, and hash-based updates come for free. The same routine installs the skills Skill Ninja then watches over.
+The `-g` flag installs Skill Ninja **globally** (user-level), so `/ninja` works in every project — that's the recommended setup. Drop it only if you deliberately want Skill Ninja scoped to a single repo, which is skills.sh's default. Distribution via [skills.sh](https://skills.sh) (`npx skills`) — multi-agent targeting and hash-based updates come for free. The same routine installs the skills Skill Ninja then watches over.
 
 ## Update
 
@@ -163,7 +182,7 @@ Skill Ninja never updates itself — updating is [skills.sh](https://skills.sh)'
 npx skills update
 ```
 
-The update is hash-based: only skills whose content actually changed are rewritten. For a project-scoped install, run it from that project's directory. Afterwards run `/ninja init`, so the cached inventory — and with it `/ninja status` and `/ninja page` — reflects the new versions: Skill Ninja ships its own `version` / `updated` stamps in the `SKILL.md` frontmatter, bumped each release.
+The update is hash-based: only skills whose content actually changed are rewritten. For a global install, run it outside any project directory (or pass `-g`); for a project-scoped install, run it from that project's directory. Afterwards run `/ninja init`, so the cached inventory — and with it `/ninja status` and `/ninja page` — reflects the new versions: Skill Ninja ships its own `version` / `updated` stamps in the `SKILL.md` frontmatter, bumped each release.
 
 ## Roadmap
 

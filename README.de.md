@@ -44,15 +44,34 @@ Deine **persönlichen** Skills leben an einem sichtbaren Ort: dem **Skill-Store*
 
 ## Schnellstart
 
-Das ganze Produkt läuft als Slash-Commands in deinem Coding-Agenten. Das ist der gedachte Workflow – von der Installation bis zur sauberen, versionierten Skill-Landschaft in wenigen Minuten.
+Das ganze Produkt läuft als Slash-Commands in deinem Coding-Agenten. Das ist der gedachte Workflow – von der Installation bis zur sauberen, versionierten Skill-Landschaft in wenigen Minuten:
 
-### 1. Installieren (einmal)
-
-```bash
-npx skills add MarcoHerten/skill-ninja
+```
+Installieren (einmal, global)
+   │
+   ▼
+npx skills add -g MarcoHerten/skill-ninja       – Skill Ninja kommt als globaler Skill an
+   │
+   ▼
+/ninja init                                      – legt Konfiguration + Skill-Store an
+   │
+   ▼
+/ninja status  ·  /ninja page                    – die ganze Landschaft auf einen Blick
+   │
+   ├─► /ninja doctor --apply                     – tote Links und Duplikate reparieren
+   ├─► git remote add … + push                   – privates Backup + blätterbare Historie
+   │
+   ▼
+/ninja add  ·  /ninja ingest  ·  /ninja diff     – Alltag
 ```
 
-Ja – Skill Ninja ist selbst ein Skill. Es kommt durch dieselbe Tür, die es später bewacht.
+### 1. Installieren (einmal, global)
+
+```bash
+npx skills add -g MarcoHerten/skill-ninja
+```
+
+Das `-g` macht Skill Ninja zu einem **globalen Skill** (auf Benutzerebene) – skills.sh installiert standardmäßig projektbezogen, und Skill Ninja ist der eine Skill, den du überall willst: `/ninja` funktioniert damit in jedem Projekt und wacht über die ganze Maschine, nicht über ein einzelnes Repo. Und ja – Skill Ninja ist selbst ein Skill. Es kommt durch dieselbe Tür, die es später bewacht.
 
 ### 2. Bestandsaufnahme: erst `init`, dann `status`
 
@@ -150,10 +169,10 @@ Aufgerufen wird der Skill als `/ninja` (z. B. `/ninja init`). Mehr Details: [`SP
 ## Installation
 
 ```bash
-npx skills add MarcoHerten/skill-ninja
+npx skills add -g MarcoHerten/skill-ninja
 ```
 
-Vertrieb über [skills.sh](https://skills.sh) (`npx skills`) – Multi-Agent-Targeting, global vs. projektbezogen und hash-basierte Updates gibt es gratis dazu. Dieselbe Routine installiert die Skills, um die sich Skill Ninja danach kümmert.
+Das Flag `-g` installiert Skill Ninja **global** (auf Benutzerebene), sodass `/ninja` in jedem Projekt funktioniert – das ist die empfohlene Einrichtung. Lass es weg, wenn du Skill Ninja bewusst auf ein einzelnes Repo beschränken willst – das ist der skills.sh-Standard. Vertrieb über [skills.sh](https://skills.sh) (`npx skills`) – Multi-Agent-Targeting und hash-basierte Updates gibt es gratis dazu. Dieselbe Routine installiert die Skills, um die sich Skill Ninja danach kümmert.
 
 ## Update
 
@@ -163,7 +182,7 @@ Skill Ninja aktualisiert sich nie selbst – Updates sind die Aufgabe von [skill
 npx skills update
 ```
 
-Das Update ist hash-basiert: nur Skills, deren Inhalt sich wirklich geändert hat, werden neu geschrieben. Bei einer projektbezogenen Installation führst du es im Projektverzeichnis aus. Danach `/ninja init` – damit das zwischengespeicherte Inventar (und mit ihm `/ninja status` und `/ninja page`) die neuen Versionen zeigt: Skill Ninja trägt eigene `version`/`updated`-Stempel im `SKILL.md`-Frontmatter, bei jedem Release neu gesetzt.
+Das Update ist hash-basiert: nur Skills, deren Inhalt sich wirklich geändert hat, werden neu geschrieben. Bei einer globalen Installation führst du es außerhalb jedes Projektverzeichnisses aus (oder mit `-g`); bei einer projektbezogenen im jeweiligen Projektverzeichnis. Danach `/ninja init` – damit das zwischengespeicherte Inventar (und mit ihm `/ninja status` und `/ninja page`) die neuen Versionen zeigt: Skill Ninja trägt eigene `version`/`updated`-Stempel im `SKILL.md`-Frontmatter, bei jedem Release neu gesetzt.
 
 ## Roadmap
 
