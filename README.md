@@ -45,7 +45,7 @@ Skills you installed via skills.sh stay owned by skills.sh — Skill Ninja watch
 
 ## Ready for Agent Plugins
 
-Agents don't only read loose skills — they read **plugins**, and plugins bundle skills of their own. [Agent Plugins 1.0.0](https://developers.googleblog.com/agent-plugins-package-your-skills-tools-and-more/) — the open packaging spec maintained by Amazon, Cursor, Microsoft, OpenAI, and Vercel, joined by Google in 2026 — standardizes that bundle: a directory with a `plugin.json` manifest, its skills in `skills/`, tools and client extras alongside.
+Agents don't only read loose skills — they read **plugins**, and plugins bundle skills of their own. [Agent Plugins 1.0.0](https://developers.googleblog.com/agent-plugins-package-your-skills-tools-and-more/) — the open packaging spec maintained by **Amazon**, **Cursor**, **Microsoft**, **OpenAI**, and **Vercel**, joined by **Google** in 2026 — standardizes that bundle: a directory with a `plugin.json` manifest, its skills in `skills/`, tools and client extras alongside.
 
 Skill Ninja is ready for it ([ADR-0018](./docs/adr/0018-plugin-owned-skills.md)):
 

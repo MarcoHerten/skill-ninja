@@ -45,7 +45,7 @@ Deine **persönlichen** Skills leben an einem sichtbaren Ort: dem **Skill-Store*
 
 ## Bereit für Agent Plugins
 
-Agenten lesen nicht nur lose Skills – sie lesen **Plugins**, und Plugins bringen eigene Skills mit. [Agent Plugins 1.0.0](https://developers.googleblog.com/agent-plugins-package-your-skills-tools-and-more/) – die offene Packaging-Spezifikation von Amazon, Cursor, Microsoft, OpenAI und Vercel, seit 2026 mit Google – standardisiert so ein Bündel: ein Verzeichnis mit `plugin.json`-Manifest, die Skills in `skills/`, Werkzeuge und Client-Erweiterungen daneben.
+Agenten lesen nicht nur lose Skills – sie lesen **Plugins**, und Plugins bringen eigene Skills mit. [Agent Plugins 1.0.0](https://developers.googleblog.com/agent-plugins-package-your-skills-tools-and-more/) – die offene Packaging-Spezifikation von **Amazon**, **Cursor**, **Microsoft**, **OpenAI** und **Vercel**, seit 2026 mit **Google** – standardisiert so ein Bündel: ein Verzeichnis mit `plugin.json`-Manifest, die Skills in `skills/`, Werkzeuge und Client-Erweiterungen daneben.
 
 Skill Ninja ist darauf vorbereitet ([ADR-0018](./docs/adr/0018-plugin-owned-skills.md)):
 
