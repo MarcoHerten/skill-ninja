@@ -1,7 +1,7 @@
 # Skill Ninja — v1.1 Specification
 
 > Vocabulary: see [`CONTEXT.md`](./CONTEXT.md) (Skill, Skill Ninja, Provenance, the tiers, Agent root, Tool asymmetry; Ingest, Candidate, Cluster, Wrap).
-> Status: v1.0 command surface implemented and realigned to the sharpened architecture — installation delegated to skills.sh (ADR-0007), `init` bootstraps configuration (ADR-0008). v1.1 bulk `ingest` is live end to end (ADR-0009, ADR-0010): dry-run classification, prompt wrap previews, cluster resolution (winners / losers / needs-decision with side-by-side, safety column), and `--apply` (store the winners with provenance in one commit + push, idempotent re-ingest). The v1.1 static HTML status page (`page`, ADR-0011) is live. The skill is invoked as `/ninja` (e.g. `/ninja init`).
+> Status: v1.0 command surface implemented and realigned to the sharpened architecture — installation delegated to skills.sh (ADR-0007), `init` bootstraps configuration (ADR-0008). v1.1 bulk `ingest` is live end to end (ADR-0009, ADR-0010): dry-run classification, prompt wrap previews, cluster resolution (winners / losers / needs-decision with side-by-side, safety column), and `--apply` (store the winners with provenance in one commit + push, idempotent re-ingest). The v1.1 static HTML status page (`page`, ADR-0011) is live. The v1.7 Manager UI (`ui`, ADR-0019) is live: the interactive, local-only web interface with Notes, Chat-Prompt export, and delegated external removal (ADR-0020). The skill is invoked as `/ninja` (e.g. `/ninja init`).
 
 ## Problem Statement
 
@@ -20,7 +20,7 @@ Existing approaches are either ad-hoc (a hand-managed folder of symlinks) or ove
 - **`ingest`** *(v1.1)* — the bulk pipeline for messy source directories (ADR-0009): point it at a directory of skills in any packaging (folders, `.zip`/`.skill`/`.skill.zip` archives, bare `SKILL.md` files) plus raw prompt documents; it classifies every item, clusters variants, and reports a proposed resolution — winners with reasons, discarded variants, junk, safety findings, unresolved conflicts. `--apply` stores the approved winners with provenance in one commit: read-only on the source, links nothing. Prompt documents are deterministically wrapped into skills (ADR-0010).
 - **`diff`** — shows what changed in a skill since the stored version ("a friend sent v2 — what's new?").
 
-**Personal** skills live in a **local canonical store** — a git repo with an optional **private remote** for versioning (`add` commits and pushes). **External** skills are owned by skills.sh (its `skills-lock.json`); Skill Ninja audits them but does not manage them. A static HTML status page (`page`, v1.1: ADR-0011) renders the cached inventory as one self-contained offline file.
+**Personal** skills live in a **local canonical store** — a git repo with an optional **private remote** for versioning (`add` commits and pushes). **External** skills are owned by skills.sh (its `skills-lock.json`); Skill Ninja audits them and removes them only by delegating to skills.sh on the user's explicit request (ADR-0020). A static HTML status page (`page`, v1.1: ADR-0011) renders the cached inventory as one self-contained offline file; the **Manager UI** (`ui`, v1.7: ADR-0019) is its interactive sibling — a local-only web interface that operates the engine directly.
 
 ## User Stories
 
@@ -96,6 +96,13 @@ Existing approaches are either ad-hoc (a hand-managed folder of symlinks) or ove
 ### Page copy-out (2026-08)
 54. As a user, I want a copy button directly behind each skill name on the status page, so I can copy the skill's name and paste it into any chat or terminal to invoke the skill there. (Revised 2026-08-19: copies the name, not the full SKILL.md — the full-file dump buried the one token I wanted to paste.)
 
+### Manager UI (v1.7)
+55. As a user, I want a local web interface that operates Skill Ninja directly — switching availability, applying and lifting profiles, and rescanning with a click instead of a pasted command (ADR-0019).
+56. As a user, I want to attach a personal Note to a stored skill — why it is relevant to me — that travels with the store repo.
+57. As a user, I want to copy a skill as a Chat-Prompt (role framing, body, task placeholder, asset warning) so I can use it in any plain chatbot without installing it anywhere.
+58. As a user, I want skills.sh-owned skills removed from my agents through the UI by delegating to skills.sh, so the lockfile stays consistent (ADR-0020).
+59. As a user, I want a one-time bulk action that moves every own active skill to Manual with a preview, so my agents' context windows stop filling with auto-triggered skills.
+
 ## Implementation Decisions
 
 - **Form factor — hybrid.** Skill Ninja ships as a skill (`SKILL.md`, the orchestration/interface layer the agent drives via slash commands) bundled with a **Node.js engine** that performs the deterministic work (inventory, hash, diff, doctor). The skill is the interface; the engine is the muscle.
@@ -138,6 +145,6 @@ Existing approaches are either ad-hoc (a hand-managed folder of symlinks) or ove
 
 ## Further Notes
 
-- **Load-bearing decisions:** public product; standalone system that delegates installation to skills.sh (ADR-0007); local canonical store + optional private Git remote; Node engine + skill interface; `init` bootstraps configuration (ADR-0008); the five v1.0 commands, plus v1.1 bulk `ingest` as a read-only, two-phase, store-only pipeline (ADR-0009) that wraps prompt documents into skills (ADR-0010), and the v1.1 static HTML status page (ADR-0011).
+- **Load-bearing decisions:** public product; standalone system that delegates installation to skills.sh (ADR-0007); local canonical store + optional private Git remote; Node engine + skill interface; `init` bootstraps configuration (ADR-0008); the five v1.0 commands, plus v1.1 bulk `ingest` as a read-only, two-phase, store-only pipeline (ADR-0009) that wraps prompt documents into skills (ADR-0010), and the v1.1 static HTML status page (ADR-0011); the v1.7 Manager UI — the interactive local-only web interface (ADR-0019) with delegated external removal (ADR-0020).
 - **Design references:** a prior personal skill store (tier model, frontmatter/provenance convention, dual-linking) and `mattpocock/skills` (distribution + dual-channel model). **Anti-pattern reference:** an earlier overloaded attempt — avoid its manual catalog, multi-target deploy script, and sync-as-transport.
 - **Build sequencing:** although the spec covers all of v1.0, the build can still sequence features — `init` + `status` first (the "see your chaos" core), then `add` + `diff`, then `doctor`. For v1.1, `ingest` slices naturally bottom-up: classification + normalization first (directly testable against the audited sample directories), then cluster resolution + report, then `--apply` (store, stamp, one commit). Slicing is decided at `/to-tickets`.

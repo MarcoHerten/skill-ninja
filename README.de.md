@@ -28,6 +28,7 @@ Kurz: **skills.sh installiert Skills. Skill Ninja passt auf sie auf.** Ein klare
 - **`/ninja status`** – das Inventar auf einem Bildschirm: welcher Agent welchen Skill erreicht, echte Kopie oder Link, global oder projektbezogen, Duplikate, tote Links, Versionen – und woher jeder Skill kommt. Auch in Agent-Plugins gebündelte Skills, mit dem Plugin, zu dem sie gehören.
 - **`/ninja cat`** – dein Katalog: Skills nach Kategorie durchstöbern (jeder mit seiner Einzeiler-Beschreibung) oder nach einem Begriff filtern. `cat assign` sortiert einen unkategorisierten Skill ein. Kategorien leben im Frontmatter des Skills selbst, nie in einer handgepflegten Liste ([ADR-0013](./docs/adr/0013-category-stamps-and-catalog.md)) – auch die Statusseite gruppiert nach Kategorie.
 - **`/ninja page`** – dasselbe Inventar als Website: eine in sich geschlossene HTML-Datei unter `~/.skill-ninja/status.html`. Kein Server, keine externen Assets, kein Netzwerk. Seit v1.3 ein kleines Cockpit: Suche, Filter und Checkboxen, die einen kopierbaren `/ninja … --apply`-Befehl bauen – chat-fertig, direkt in den Agenten-Chat einfügen. Die Seite selbst führt nichts aus – die Engine bleibt hinter `--apply` ([ADR-0011](./docs/adr/0011-static-html-status-page.md)). Direkt hinter jedem Skillnamen sitzt ein `copy`-Knopf: Ein Klick legt den Skill-Namen in die Zwischenablage – das Token, das du in einen Chat oder ein Terminal einfügst, um den Skill dort aufzurufen.
+- **`/ninja ui`** – die **Manager UI**: eine lokale Weboberfläche, die *bedient* statt Befehle vorzuschlagen. Availability pro Skill per Klick schalten (global aktiv / nur auf Aufruf / aus), Profile pro Projekt anwenden und wieder liften, eine persönliche Notiz hinterlegen, warum ein Skill für dich zählt, einen Skill dreifach kopieren (Name, rohes `SKILL.md` oder als **Chat-Prompt** für jeden gewöhnlichen Chatbot – ohne Installation) und skills.sh-Skills per Delegation entfernen, damit das Lockfile konsistent bleibt. Jeder Schreibvorgang zeigt zuerst den Probelauf der Engine – der Klick ist das `--apply` ([ADR-0019](./docs/adr/0019-manager-ui.md), [ADR-0020](./docs/adr/0020-external-removal.md)). Nur Loopback, läuft im Vordergrund, Ctrl-C beendet ihn; die statische `page`-Seite bleibt der Offline-Snapshot.
 - **`/ninja doctor`** – findet tote Links, Duplikat-Wildwuchs und verwaiste Kopien, und schlägt für jede eine Reparatur vor. Angefasst wird nichts ohne dein OK: mit `--apply` führst du die freigegebenen Fixes aus.
 - **`/ninja add`** – ein Skill, der nicht über skills.sh kam (von einem Freund, aus einem Download oder als nackter Prompt-Text): Sicherheitscheck, Diff gegen das Vorhandene, Stempel mit Herkunft und Hash, ein lesbares `CHANGELOG.md` – und die Installation selbst.
 - **`/ninja ingest`** – ein ganzes, unordentliches Verzeichnis auf einmal: ein Export, eine Prompt-Bibliothek, ein Ordner voller Fast-Duplikate. Alles wird klassifiziert, die Varianten gebündelt, ein Gewinner pro Cluster vorgeschlagen – mit Begründung. Zwillinge mit echten Unterschieden entscheidest du selbst; der Rest wandert in einem Commit in den Store. Der Quellordner bleibt unangetastet.
@@ -70,6 +71,7 @@ npx skills add -g MarcoHerten/skill-ninja       – Skill Ninja kommt als global
    ▼
 /ninja status  ·  /ninja page                    – die ganze Landschaft auf einen Blick
    │
+   ├─► /ninja ui                                 – im Browser verwalten
    ├─► /ninja doctor --apply                     – tote Links und Duplikate reparieren
    ├─► git remote add … + push                   – privates Backup + blätterbare Historie
    │
@@ -164,8 +166,10 @@ Der Vergleich läuft über den Skill-Body – Buchhaltungsrauschen wie Stempel u
 | Ein ganzer Export / eine Prompt-Bibliothek | `/ninja ingest` |
 | „Welche meiner Skills sind Marketing-Skills?“ | `/ninja cat` (dann `cat assign` für die unkategorisierten) |
 | „Welche Skills passen zu \<begriff\>?“ | `/ninja find <begriff>` |
-| „Dieser Skill triggert dauernd, ich will ihn auf Abruf“ | `/ninja manual <name>` (per Name aufrufbar, nie automatisch) |
+| „Dieser Skill triggert dauernd, ich will ihn auf Abruf“ | `/ninja manual <name>` (per Name aufrufbar, nie automatisch) – oder in der Manager UI anklicken |
 | „Raus aus meinem Kontextfenster, ganz“ | `/ninja off <name>` (oder `off --category "…"` in Masse) |
+| „Meine Agenten ertrinken in automatisch triggernden Skills“ | `/ninja ui` → die Sammelaktion schiebt alle eigenen aktiven Skills auf „nur auf Aufruf“, mit Vorschau |
+| „Ich will einen Skill im normalen Chatbot nutzen, ohne Installation“ | `/ninja ui` → **Chat-Prompt**-Knopf hinter dem Skillnamen |
 | „Dieses Repo braucht meine Content-Skills“ | `/ninja profile save content <namen…>`, dann `profile apply content` im Repo |
 | „Zeig mir Nils’ Skills als Bündel“ | `/ninja collection save nils <namen/präfixe…>`, dann `cat @nils` |
 | Landschaft fühlt sich falsch an | `/ninja status`, dann `/ninja doctor` |
@@ -173,7 +177,7 @@ Der Vergleich läuft über den Skill-Body – Buchhaltungsrauschen wie Stempel u
 
 ## Status
 
-🚧 **Früh – und alles darunter ist live, bis einschließlich v1.6.**
+🚧 **Früh – und alles darunter ist live, bis einschließlich v1.7.**
 
 - **v1.0** – `init` (Bootstrap + Scan), `status`, `doctor`, `add` (Sicherheitscheck, Stempel, Commit + Push), `diff`
 - **v1.1** – die `ingest`-Massenpipeline ([ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)); die Offline-Statusseite `page` ([ADR-0011](./docs/adr/0011-static-html-status-page.md))
@@ -183,6 +187,7 @@ Der Vergleich läuft über den Skill-Body – Buchhaltungsrauschen wie Stempel u
 - **v1.4** – der sichtbare kanonische Store: `~/skill-ninja-store` als Standard, `init --store`, README + erster Commit als Startausstattung ([ADR-0016](./docs/adr/0016-visible-canonical-store.md))
 - **v1.5** – reisende Bündel: Collections & Profiles leben store-seitig (`<store>/collections.json` / `profiles.json`), reisen mit dem Store-Repo und kehren auf einer neuen Maschine zurück – Store klonen + `init` ([ADR-0017](./docs/adr/0017-collections-and-profiles-travel-with-the-store.md))
 - **v1.6** – Plugin-Bewusstsein: in Agent-Plugins gebündelte Skills (Agent-Plugins-1.0.0-Layout und die Vor-Spezifikations-Caches) werden als plugin-owned inventarisiert – überall sichtbar, nirgends angefasst ([ADR-0018](./docs/adr/0018-plugin-owned-skills.md))
+- **v1.7** – die Manager UI: `/ninja ui` dient die interaktive, lokale Weboberfläche auf – Availability-Schalter in Installations-Sprache, Profile anwenden/liften mit Projektwahl, Notizen (`NOTE.md` neben der gespeicherten Kopie), die drei Kopier-Varianten inklusive Chat-Prompt, delegiertes Entfernen von External-Skills und die Sammelaktion „eigene aktive Skills → nur auf Aufruf“ ([ADR-0019](./docs/adr/0019-manager-ui.md), [ADR-0020](./docs/adr/0020-external-removal.md))
 
 Aufgerufen wird der Skill als `/ninja` (z. B. `/ninja init`). Mehr Details: [`SPEC.md`](./SPEC.md), [`CONTEXT.md`](./CONTEXT.md) und [`docs/adr/`](./docs/adr).
 
@@ -214,6 +219,7 @@ Das Update ist hash-basiert: nur Skills, deren Inhalt sich wirklich geändert ha
 - **v1.4** ✅ – sichtbarer kanonischer Store: `~/skill-ninja-store` als Standard, `init --store <name|pfad>`, README + erster Commit ([ADR-0016](./docs/adr/0016-visible-canonical-store.md))
 - **v1.5** ✅ – reisende Bündel: Collections & Profiles ziehen store-seitig um (`<store>/collections.json` / `profiles.json`), werden mit dem Store committet und auf einer neuen Maschine per Klon + `init` wiederhergestellt ([ADR-0017](./docs/adr/0017-collections-and-profiles-travel-with-the-store.md))
 - **v1.6** ✅ – Plugin-Bewusstsein: Agent-Plugin-Caches werden zu Scan-Roots, gebündelte Skills werden als plugin-owned auditiert (Agent-Plugins-1.0.0-ready) ([ADR-0018](./docs/adr/0018-plugin-owned-skills.md))
+- **v1.7** ✅ – Manager UI: die interaktive lokale Weboberfläche (`/ninja ui`) mit Notizen, Chat-Prompt-Export und delegiertem External-Removal ([ADR-0019](./docs/adr/0019-manager-ui.md), [ADR-0020](./docs/adr/0020-external-removal.md))
 
 ## Designprinzipien
 

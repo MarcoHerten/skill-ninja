@@ -34,8 +34,12 @@ design shipped on `feat/status-page-clean-dashboard`.
   Notes editor (`NOTE.md` in the canonical store, one commit per save), the
   three copy flavors (name / raw SKILL.md / Chat-Prompt), external removal
   (ADR-0020), and the bulk "own Actives → Manual" migration with preview.
-  **Manual is the default availability for newly linked skills**; existing
-  Actives migrate only through the explicit bulk action, never silently.
+  **Every global activation in the UI is an explicit choice**, and the
+  availability control leads with "Nur auf Aufruf" — Manual is the
+  recommended default, auto-trigger the exception you opt into. (The engine
+  commands' own semantics are unchanged in v1; defaulting a fresh `add` to
+  Manual is a candidate follow-up.) Existing Actives migrate only through
+  the explicit bulk action, never silently.
 - **Copy flavors fetch on demand.** The Manager UI serves skill bodies via
   its API when a copy button is clicked; nothing is embedded wholesale.
   ADR-0011's story-#54 update (the *static* page copies the name only)

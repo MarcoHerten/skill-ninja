@@ -31,6 +31,7 @@ Because of **tool asymmetry**, Skill Ninja resolves each **agent root** (e.g. `~
 | `/ninja status`| `status`        | One inventory view: every skill's location, duplicates, broken links, versions, provenance. | **Live**      |
 | `/ninja cat`   | `cat`           | Browse the landscape as a catalog grouped by category; `cat assign` stamps a category on the stored copy. | **Live (v1.2)** |
 | `/ninja page`  | `page`          | Render the cached inventory as a self-contained static HTML status page and print its path. | **Live (v1.1)** |
+| `/ninja ui`    | `ui`            | Start the Manager UI: the interactive, local-only web interface that operates the engine directly — availability switches, profiles, notes, copy flavors, delegated external removal. `--port <n>` / `--no-open`. | **Live (v1.7)** |
 | `/ninja doctor`| `doctor`        | Detect and repair problems (broken links, duplicates, orphans), each fix approved first. | **Live**      |
 | `/ninja add`   | `add`           | Ingest a new skill safely (safety check + diff), place + link it, stamp provenance & content hash, write its CHANGELOG.md. | **Live**      |
 | `/ninja ingest`| `ingest`        | Bulk-analyze a messy source directory (skills in any packaging, prompt documents), report the proposed resolution, and on `--apply` store the winners with provenance — read-only on the source, links nothing. | **Live (v1.1)** |
@@ -81,6 +82,14 @@ Since v1.3 the page carries the **availability cockpit**: a search box (name / d
 Directly behind every skill name sits a small **`copy` button** (story #54, revised 2026-08-19, ADR-0011): one click puts the skill's **name** on the clipboard — the token to paste into any chat or terminal to invoke the skill there. The name comes from the card's cached data (no file read, nothing embedded in the page); the button confirms with `copied ✓`.
 
 The file is **regenerated wholesale on every invocation** — there is no watcher and no auto-refresh. After changing the landscape, run `/ninja init` then `/ninja page` to refresh the view. The command is read-only towards the skill landscape: it writes exactly the one HTML file. Relay the printed path to the user and open it in their browser (e.g. `open <path>` on macOS); the page works offline via `file://`. If no inventory exists yet, `page` says so in plain language and points to `init` (exit 0). The page contains landscape metadata (names, paths, provenance) — treat the file as local, private data; Skill Ninja never publishes it.
+
+### `/ninja ui` (live, v1.7)
+
+Runs `node <SKILL_DIR>/engine/cli.js ui [--port <n>] [--no-open]` and **keeps running in the foreground**: it serves the **Manager UI** — the interactive, local-only web interface (ADR-0019) — at the printed `http://127.0.0.1:<port>` URL and opens the browser (`--no-open` skips that; a busy port is an error, never a steal). Loopback-only, no network, no external assets, Plain Node; Ctrl-C stops it. Relay the URL and tell the user the server runs until they stop it.
+
+Where `page` *proposes* a command to copy, the Manager UI *operates*: its buttons call JSON endpoints that run the same engine code. Per skill it offers the availability switch in install language — **Global aktiv / Nur auf Aufruf / Aus** (the control leads with "Nur auf Aufruf": Manual is the recommended default, auto-trigger the explicit exception); Personal skills only — External skills get exactly two actions (leave, or remove via `npx skills remove` delegation, ADR-0020), Plugin skills none (ADR-0018). Profile **apply/lift** with a project picker links a named set into `<project>/.agents/skills`. The **Notes editor** writes `NOTE.md` beside the stored copy — one commit per save, traveling with the store. Three **copy flavors** per skill: name, raw `SKILL.md`, and the **Chat-Prompt** (the skill wrapped as a self-contained prompt — role framing, body, task placeholder, asset warning — for any plain chatbot, no installation needed). The bulk action migrates every own Active skill to Manual in one confirmed step.
+
+**Two-phase approval survives as an explicit confirm**: every mutating action first fetches the engine's dry-run plan and shows it; the click is the `--apply`. The page reads the cached inventory (a Refresh button runs `init`); the server never watches or re-scans on its own. If no inventory exists, the page says so and offers the init run.
 
 ### `/ninja doctor` (live)
 

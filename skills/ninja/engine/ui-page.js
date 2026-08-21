@@ -214,7 +214,9 @@ const MANAGER_JS = `
     }
     if (g.tier === "personal") {
       var seg = el("div", "state-toggle");
-      [["on", "Global aktiv"], ["manual", "Nur auf Aufruf"], ["off", "Aus"]].forEach(function (d) {
+      // "Nur auf Aufruf" leads: Manual is the recommended default — global
+      // auto-trigger is the explicit exception, never the silent norm.
+      [["manual", "Nur auf Aufruf"], ["on", "Global aktiv"], ["off", "Aus"]].forEach(function (d) {
         var b = el("button", "state", d[1]);
         b.type = "button";
         var current = g.availability === "active" ? "on" : g.availability;
