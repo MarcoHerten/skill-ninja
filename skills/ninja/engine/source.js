@@ -13,13 +13,21 @@ import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// URL-form repo sources are encrypted-transport only: https:// and ssh:// (plus
+// the git@ shorthand below). Any other URL scheme — unencrypted http:// and the
+// long-deprecated git:// (GitHub disabled it), but also file:// and friends —
+// is refused with a plain-language error in resolveSkillFromSource instead of
+// being handed to git clone. This matches the source forms SKILL.md documents.
+const REPO_URL = /^(?:https|ssh):\/\//i;
+const ANY_URL = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
+
 // A source is a repo/URL when it looks remote (URL schemes, git@, owner/repo
 // shorthand) or ends in `.git`. owner/repo only counts when it is not an
 // existing local path (so a relative folder is never mistaken for a GitHub repo).
 export function looksLikeRepo(source) {
   if (typeof source !== "string") return false;
+  if (ANY_URL.test(source)) return REPO_URL.test(source);
   if (source.endsWith(".git")) return true;
-  if (/^(https?|ssh|git):\/\//.test(source)) return true;
   if (/^git@/.test(source)) return true;
   if (/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(source) && !existsSync(source)) return true;
   return false;
@@ -91,6 +99,12 @@ export async function resolveSkillFromSource(source) {
   let sourceType;
   let dir = null;
   let content;
+  if (typeof source === "string" && ANY_URL.test(source) && !REPO_URL.test(source)) {
+    throw new Error(
+      `unsupported source URL '${source}': repo URLs must use https:// or ssh:// ` +
+        `(unencrypted http:// and git:// are refused); local paths and owner/repo shorthand work as before`,
+    );
+  }
   if (looksLikeRepo(source)) {
     sourceType = "repo";
     dir = cloneRepo(source);

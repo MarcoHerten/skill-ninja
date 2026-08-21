@@ -210,6 +210,25 @@ test("add accepts a repo source by cloning it (offline via a local git repo)", a
   }
 });
 
+// Slice Fb — unencrypted repo URLs (http://, git://) are refused with a
+// plain-language error BEFORE any clone is attempted: repo sources are
+// encrypted-transport only (https://, ssh://, git@). Offline by construction —
+// the error fires before git runs, so no network is touched.
+test("add refuses unencrypted repo URLs with a plain-language error", async () => {
+  const sb = await createSandbox();
+  try {
+    for (const url of ["http://example.com/skills/demo.git", "git://example.com/skills/demo.git"]) {
+      const { stderr, exitCode } = await runCli(sb.home, ["add", url, "--name", "demo"]);
+      assert.equal(exitCode, 2, `expected exit 2 for ${url}, stderr:\n${stderr}`);
+      assert.match(stderr, /https:\/\//, `expected an https hint for ${url}, got:\n${stderr}`);
+    }
+    // Nothing was cloned or stored.
+    assert.ok(!existsSync(join(storePath(sb.home), "demo")), "nothing stored");
+  } finally {
+    await sb.cleanup();
+  }
+});
+
 // Slice G — when the canonical store is a git repo, the addition is committed
 // locally. With no remote configured, push is skipped silently (ADR-0007).
 test("add commits the skill when the canonical store is a git repo", async () => {

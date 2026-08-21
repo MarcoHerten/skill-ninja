@@ -197,7 +197,7 @@ The comparison runs over the skill body, so bookkeeping churn — stamps, hashes
 
 ## Status
 
-🚧 **Early — and everything below is live, up to v1.7.**
+🚧 **Early — and everything below is live, up to v1.7.1.**
 
 - **v1.0** — `init` (bootstrap + scan), `status`, `doctor`, `add` (safety check, stamping, commit + push), `diff`
 - **v1.1** — the bulk `ingest` pipeline ([ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)); the offline status `page` ([ADR-0011](./docs/adr/0011-static-html-status-page.md))
@@ -208,6 +208,7 @@ The comparison runs over the skill body, so bookkeeping churn — stamps, hashes
 - **v1.5** — traveling bundles: collections & profiles live store-side (`<store>/collections.json` / `profiles.json`), travel with the store repo, and come back on a fresh machine by cloning the store + `init` ([ADR-0017](./docs/adr/0017-collections-and-profiles-travel-with-the-store.md))
 - **v1.6** — plugin awareness: skills bundled inside agent plugins (Agent Plugins 1.0.0 layout and the pre-spec caches) are inventoried as plugin-owned — shown everywhere, touched nowhere ([ADR-0018](./docs/adr/0018-plugin-owned-skills.md))
 - **v1.7** — the Manager UI: `/ninja ui` serves the interactive, local-only web interface — availability switches in install language, profile apply/lift with a project picker, Notes (`NOTE.md` beside the stored copy), the three copy flavors including the Chat-Prompt, delegated external removal, and the bulk own-Actives-to-Manual migration ([ADR-0019](./docs/adr/0019-manager-ui.md), [ADR-0020](./docs/adr/0020-external-removal.md))
+- **v1.7.1** — security hardening + transparency: repo URLs are encrypted-transport only (`http://` / `git://` refused with a plain-language error), and the "[Security](#security--about-the-scanner-warnings-on-skillssh)" section explains the skills.sh scanner verdicts in plain words
 
 The skill is invoked as `/ninja` (e.g. `/ninja init`). More detail in [`SPEC.md`](./SPEC.md), [`CONTEXT.md`](./CONTEXT.md), and [`docs/adr/`](./docs/adr).
 
@@ -240,6 +241,7 @@ The update is hash-based: only skills whose content actually changed are rewritt
 - **v1.5** ✅ — traveling bundles: collections & profiles move store-side (`<store>/collections.json` / `profiles.json`), committed with the store, restored on a fresh machine by clone + `init` ([ADR-0017](./docs/adr/0017-collections-and-profiles-travel-with-the-store.md))
 - **v1.6** ✅ — plugin awareness: agent plugin caches become scan roots, bundled skills are audited as plugin-owned (Agent Plugins 1.0.0-ready) ([ADR-0018](./docs/adr/0018-plugin-owned-skills.md))
 - **v1.7** ✅ — Manager UI: the interactive local web interface (`/ninja ui`) with notes, Chat-Prompt export, and delegated external removal ([ADR-0019](./docs/adr/0019-manager-ui.md), [ADR-0020](./docs/adr/0020-external-removal.md))
+- **v1.7.1** ✅ — security hardening (encrypted-transport-only repo URLs) + the plain-language Security section on the skills.sh scanner verdicts
 
 ## Design principles
 
@@ -247,6 +249,20 @@ The update is hash-based: only skills whose content actually changed are rewritt
 - **One source of truth per tier** — a canonical store for personal skills (linked into each agent's root), skills.sh's lockfile for the skills it installed, and the agent's plugin system for plugin-bundled skills. Skill Ninja audits across all three.
 - **Agent-native** — operated via slash commands in your coding agent, not a separate app.
 - **Safe by default** — a lightweight safety check on every incoming skill, and bulk actions stay dry runs until you pass `--apply`.
+
+## Security — about the scanner warnings on skills.sh
+
+[skills.sh](https://skills.sh/MarcoHerten/skill-ninja) runs automated security scanners (Gen, Socket, Snyk) over every published skill. Their verdicts for Skill Ninja can look alarming — here is what they actually say, in plain words (audit of 2026-08-18):
+
+| Scanner | Verdict | In plain words |
+| --- | --- | --- |
+| **Gen** | Safe | No findings. |
+| **Socket** | 1 alert (low) | "The tool can stage files, commit, and push." That is the versioning feature itself: it commits **your** skill store and pushes it to **the remote you configured** — nowhere else, and only when you run a command. Socket's own report finds no malware traits. |
+| **Snyk** | Critical | "Suspicious download URL." The flagged line expands `owner/repo` into `https://github.com/owner/repo` — the documented `ninja add <owner/repo>` feature. The "variable" part is the repository name **you** typed; there is no hidden or fixed download source. (The two medium notes flag the same job description: reading skill files for the inventory, and cloning the repos you name.) |
+
+In short: Skill Ninja is a skill manager, and its job description — read the skill files on your machine, clone the repositories you name, keep your store versioned in git — is exactly what scanner heuristics look for. The warnings describe the tool doing its documented job on your explicit command, not hidden behavior. What Skill Ninja never does: execute downloaded content, run scripts from cloned repositories, read credentials, or open network connections beyond `git clone` / `git push` / skills.sh itself.
+
+Hardening in place: every incoming skill passes a static safety check before it is stored (findings are shown, nothing is blocked silently), and repo URLs are accepted over encrypted transports only — `https://` and `ssh://`; unencrypted `http://` and `git://` are refused.
 
 ## License
 

@@ -197,7 +197,7 @@ Der Vergleich läuft über den Skill-Body – Buchhaltungsrauschen wie Stempel u
 
 ## Status
 
-🚧 **Früh – und alles darunter ist live, bis einschließlich v1.7.**
+🚧 **Früh – und alles darunter ist live, bis einschließlich v1.7.1.**
 
 - **v1.0** – `init` (Bootstrap + Scan), `status`, `doctor`, `add` (Sicherheitscheck, Stempel, Commit + Push), `diff`
 - **v1.1** – die `ingest`-Massenpipeline ([ADR-0009](./docs/adr/0009-bulk-ingest-pipeline.md), [ADR-0010](./docs/adr/0010-wrap-prompts-into-skills.md)); die Offline-Statusseite `page` ([ADR-0011](./docs/adr/0011-static-html-status-page.md))
@@ -208,6 +208,7 @@ Der Vergleich läuft über den Skill-Body – Buchhaltungsrauschen wie Stempel u
 - **v1.5** – reisende Bündel: Collections & Profiles leben store-seitig (`<store>/collections.json` / `profiles.json`), reisen mit dem Store-Repo und kehren auf einer neuen Maschine zurück – Store klonen + `init` ([ADR-0017](./docs/adr/0017-collections-and-profiles-travel-with-the-store.md))
 - **v1.6** – Plugin-Bewusstsein: in Agent-Plugins gebündelte Skills (Agent-Plugins-1.0.0-Layout und die Vor-Spezifikations-Caches) werden als plugin-owned inventarisiert – überall sichtbar, nirgends angefasst ([ADR-0018](./docs/adr/0018-plugin-owned-skills.md))
 - **v1.7** – die Manager UI: `/ninja ui` dient die interaktive, lokale Weboberfläche auf – Availability-Schalter in Installations-Sprache, Profile anwenden/liften mit Projektwahl, Notizen (`NOTE.md` neben der gespeicherten Kopie), die drei Kopier-Varianten inklusive Chat-Prompt, delegiertes Entfernen von External-Skills und die Sammelaktion „eigene aktive Skills → nur auf Aufruf“ ([ADR-0019](./docs/adr/0019-manager-ui.md), [ADR-0020](./docs/adr/0020-external-removal.md))
+- **v1.7.1** – Security-Härtung + Transparenz: Repo-URLs nur über verschlüsselte Transporte (`http://` / `git://` werden mit einer Klartext-Fehlermeldung abgelehnt), und die [Sicherheits-Sektion](#sicherheit--was-die-scanner-warnungen-auf-skillssh-bedeuten) erklärt die Scanner-Urteile von skills.sh in klaren Worten
 
 Aufgerufen wird der Skill als `/ninja` (z. B. `/ninja init`). Mehr Details: [`SPEC.md`](./SPEC.md), [`CONTEXT.md`](./CONTEXT.md) und [`docs/adr/`](./docs/adr).
 
@@ -240,6 +241,7 @@ Das Update ist hash-basiert: nur Skills, deren Inhalt sich wirklich geändert ha
 - **v1.5** ✅ – reisende Bündel: Collections & Profiles ziehen store-seitig um (`<store>/collections.json` / `profiles.json`), werden mit dem Store committet und auf einer neuen Maschine per Klon + `init` wiederhergestellt ([ADR-0017](./docs/adr/0017-collections-and-profiles-travel-with-the-store.md))
 - **v1.6** ✅ – Plugin-Bewusstsein: Agent-Plugin-Caches werden zu Scan-Roots, gebündelte Skills werden als plugin-owned auditiert (Agent-Plugins-1.0.0-ready) ([ADR-0018](./docs/adr/0018-plugin-owned-skills.md))
 - **v1.7** ✅ – Manager UI: die interaktive lokale Weboberfläche (`/ninja ui`) mit Notizen, Chat-Prompt-Export und delegiertem External-Removal ([ADR-0019](./docs/adr/0019-manager-ui.md), [ADR-0020](./docs/adr/0020-external-removal.md))
+- **v1.7.1** ✅ – Security-Härtung (Repo-URLs nur verschlüsselt) + die Klartext-Sicherheits-Sektion zu den skills.sh-Scanner-Urteilen
 
 ## Designprinzipien
 
@@ -247,6 +249,20 @@ Das Update ist hash-basiert: nur Skills, deren Inhalt sich wirklich geändert ha
 - **Eine Quelle der Wahrheit pro Ebene** – ein kanonischer Store für persönliche Skills (in jeden Agenten-Root verlinkt), das Lockfile von skills.sh für die von ihm installierten Skills und das Plugin-System des Agenten für plugin-gebündelte Skills. Skill Ninja prüft über alle drei hinweg.
 - **Agent-nativ** – bedient über Slash-Commands in deinem Coding-Agenten, nicht über eine separate App.
 - **Sicher von Haus aus** – ein leichter Sicherheitscheck bei jedem eingehenden Skill, und Massenaktionen bleiben Probeläufe, bis du `--apply` übergibst.
+
+## Sicherheit – was die Scanner-Warnungen auf skills.sh bedeuten
+
+[skills.sh](https://skills.sh/MarcoHerten/skill-ninja) lässt automatisierte Sicherheits-Scanner (Gen, Socket, Snyk) über jeden veröffentlichten Skill laufen. Ihre Urteile für Skill Ninja können beunruhigend wirken – das sagen sie tatsächlich, in klaren Worten (Audit vom 18.08.2026):
+
+| Scanner | Urteil | In klaren Worten |
+| --- | --- | --- |
+| **Gen** | Safe | Keine Befunde. |
+| **Socket** | 1 Warnung (niedrig) | „Das Tool kann Dateien stagen, committen und pushen.“ Das ist die Versionierungs-Funktion selbst: Sie committet **deinen** Skill-Store und pusht ihn auf **das von dir eingerichtete Remote** – nirgendwo sonst hin, und nur wenn du einen Befehl ausführst. Sockets eigener Bericht findet keine Malware-Merkmale. |
+| **Snyk** | Critical | „Verdächtige Download-URL.“ Die beanstandete Zeile erweitert `owner/repo` zu `https://github.com/owner/repo` – die dokumentierte `ninja add <owner/repo>`-Funktion. Das „variable“ Teil ist der Repository-Name, **den du selbst** eingibst; eine versteckte oder fest eingebaute Download-Quelle gibt es nicht. (Die beiden mittleren Warnungen beanstanden dasselbe Jobprofil: Skill-Dateien für das Inventar lesen und die von dir benannten Repos klonen.) |
+
+Kurz: Skill Ninja ist ein Skill-Manager, und sein Jobprofil – die Skill-Dateien auf deiner Maschine lesen, die von dir benannten Repositories klonen, deinen Store in Git versionieren – ist genau das, wonach Scanner-Heuristiken suchen. Die Warnungen beschreiben das Tool bei seiner dokumentierten Arbeit auf deinen ausdrücklichen Befehl, kein verstecktes Verhalten. Was Skill Ninja nie tut: heruntergeladene Inhalte ausführen, Skripte aus geklonten Repositories ausführen, Zugangsdaten lesen oder Netzwerkverbindungen über `git clone` / `git push` / skills.sh hinaus öffnen.
+
+Härtung aktiv: Jeder eingehende Skill durchläuft vor dem Einlagern einen statischen Sicherheitscheck (Befunde werden gezeigt, nichts wird stillschweigend blockiert), und Repo-URLs werden nur über verschlüsselte Transporte akzeptiert – `https://` und `ssh://`; unverschlüsselte `http://`- und `git://`-URLs werden abgelehnt.
 
 ## Lizenz
 

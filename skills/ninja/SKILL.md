@@ -1,7 +1,7 @@
 ---
 name: ninja
 description: Manage the skills AI coding agents consume — analyze the machine, inventory every skill across agent roots, plugin caches, and vaults, repair the mess, ingest new skills safely with provenance, and manage availability, notes, and profiles through a local Manager UI. Drives a bundled Node engine.
-version: 1.7.0
+version: 1.7.1
 updated: 2026-08-21
 ---
 
@@ -125,7 +125,7 @@ Runs `node <SKILL_DIR>/engine/cli.js add <source> [options]` and relays the outp
 - a **zip archive** — a `.zip` path (how a friend typically sends a skill); extracted to a temp dir, then treated as a folder — the archive root or its single wrapping directory must hold the `SKILL.md`.
 - a **bare file** — a single `SKILL.md` file path (pass `--name`).
 - a **bare prompt** — `--prompt "<text>"` writes a SKILL.md from raw content (pass `--name`).
-- a **repo/URL** — a git URL (`https://`, `git@`, `ssh://`), an `owner/repo` shorthand, or any path ending in `.git`; cloned via `git clone` into a temp dir, then treated as a folder.
+- a **repo/URL** — a git URL (`https://`, `git@`, `ssh://`), an `owner/repo` shorthand, or any path ending in `.git`; cloned via `git clone` into a temp dir, then treated as a folder. URL sources are **encrypted-transport only**: unencrypted `http://`/`git://` (and any other URL scheme) are refused with a plain-language error before anything is cloned.
 
 **Options:**
 
@@ -166,7 +166,7 @@ Runs `node <SKILL_DIR>/engine/cli.js diff <name> <candidate>` and relays the out
 **Usage:** `ninja diff <name> <candidate>`
 
 - `<name>` — a Skill already in the canonical store (the baseline / stored version).
-- `<candidate>` — the version to compare: a **folder** (a directory with `SKILL.md`), a **bare `SKILL.md` file**, or a **repo/URL** (a git URL, `owner/repo` shorthand, or a path ending in `.git`). It is resolved with the *same* source resolver `add` uses, so a repo/URL candidate **is** the upstream/external version — Skill Ninja clones it and diffs the cloned `SKILL.md`.
+- `<candidate>` — the version to compare: a **folder** (a directory with `SKILL.md`), a **bare `SKILL.md` file**, or a **repo/URL** (a git URL, `owner/repo` shorthand, or a path ending in `.git`). It is resolved with the *same* source resolver `add` uses (same encrypted-transport-only rule for URL candidates), so a repo/URL candidate **is** the upstream/external version — Skill Ninja clones it and diffs the cloned `SKILL.md`.
 
 **A candidate is required.** The store copy is the canonical baseline, so there is nothing to diff without a second version to compare it against. Run `diff <name>` with no candidate and Skill Ninja says so in plain language and shows the usage (exit non-zero).
 
@@ -220,6 +220,10 @@ The views resolve patterns **live** against the cached inventory: `cat @<name>` 
 ### `/ninja config` (live)
 
 Runs `node <SKILL_DIR>/engine/cli.js config show` and relays the output. It prints the resolved **canonical store**, each configured **agent** with its resolved **agent root**, and the configured **vaults**. If no configuration exists yet, it says so and points to `init`.
+
+## Security-scanner warnings on skills.sh
+
+skills.sh runs automated security scanners (Gen, Socket, Snyk) over every published skill, and their verdicts for Skill Ninja can look alarming — a red "Critical Risk" badge, a "suspicious download URL" note, a low Socket alert on `engine/git.js`. They are heuristics matching the documented core work of a skill manager: clone the repos the user names, read SKILL.md files for the inventory, commit and push the user's own store. When a user asks about them (a pasted warning box, a `/security/…` link, an alarmed "is this malware?"), load [`references/security-scanners.md`](./references/security-scanners.md) — the plain-language table, the one-breath summary, and the hardening facts — and explain calmly in the user's language. Never dismiss the question; a user who asks is right to ask.
 
 ## Build status
 
