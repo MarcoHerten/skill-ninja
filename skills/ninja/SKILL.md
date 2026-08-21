@@ -1,8 +1,8 @@
 ---
 name: ninja
-description: Manage the skills AI coding agents consume — analyze the machine, inventory every skill across agent roots, plugin caches, and vaults, repair the mess, and ingest new skills safely with provenance. Drives a bundled Node engine.
-version: 1.6.0
-updated: 2026-08-19
+description: Manage the skills AI coding agents consume — analyze the machine, inventory every skill across agent roots, plugin caches, and vaults, repair the mess, ingest new skills safely with provenance, and manage availability, notes, and profiles through a local Manager UI. Drives a bundled Node engine.
+version: 1.7.0
+updated: 2026-08-21
 ---
 
 # Skill Ninja
