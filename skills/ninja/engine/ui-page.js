@@ -177,12 +177,12 @@ const MANAGER_JS = `
   function copyButtons(g) {
     var frag = document.createDocumentFragment();
     var defs = [
-      ["/Name", copyName], ["SKILL.md", copyRaw], ["Chat-Prompt", copyPrompt],
+      ["/SKILL", copyName], ["SKILL.md", copyRaw], ["Chat-Prompt", copyPrompt],
     ];
     defs.forEach(function (d) {
       var b = el("button", "copy-skill", d[0]);
       b.type = "button";
-      b.title = d[0] === "/Name"
+      b.title = d[0] === "/SKILL"
         ? "Kopiert /" + g.name + " — direkt in einen Chat einfügen und der Skill wird aufgerufen"
         : d[0] + " in die Zwischenablage kopieren";
       b.addEventListener("click", function (e) { e.preventDefault(); d[1](b, g); });
