@@ -113,3 +113,53 @@ wanted export is the skill itself.
   search (the payload would make almost every term match almost every
   skill).
 
+## Update (2026-08-19, later the same day — the copy button copies the NAME)
+
+Owner feedback on the shipped button: pasting the full SKILL.md puts a wall
+of text on the clipboard — what is actually wanted is the skill's **name**,
+the token you paste into a chat or terminal to invoke the skill. Story #54
+is revised accordingly: one click behind the name copies the name, and the
+full-file export above is withdrawn — the dump buried the one token wanted
+on the clipboard (the name) in a wall of text.
+
+- **Payload embedding removed.** The name comes from the card's
+  `data-name` attribute (cache data), so the button renders from the
+  snapshot alone and `page` reads NOTHING from the landscape again — the
+  strict read-only property of the original decision is fully restored. A
+  SKILL.md deleted since `init` no longer drops its card's button.
+- **Size tradeoff void.** Without the embedded bodies the page shrinks back
+  to name/description/locations markup (~0.9 MB on the 412-skill reference
+  machine; the ~5.7 MB figure above is obsolete).
+- **Script behavior unchanged in kind.** The cockpit hands the name to the
+  clipboard API (with the `execCommand` fallback) and still cancels the
+  `<summary>` toggle on button clicks. Search stays
+  name/description/category/locations — now trivially, because bodies are
+  simply not on the page.
+
+## Update (2026-08-19, evening — the copied command leads with the slash)
+
+Owner feedback on the cockpit's copy flow: the generated command started
+with `ninja`, but the place it gets pasted is the agent chat, where the
+skill is invoked as `/ninja` (SPEC.md) — every paste needed a hand-typed
+slash before it did anything. The generated command line now leads with
+the slash: `/ninja on|manual|off --apply …`, ready to paste straight into
+any agent chat. A terminal run simply drops the leading slash.
+
+Nothing else moves: the two-phase approval model is unchanged (the copied
+slash-command is still only the proposal; the engine behind `--apply`
+remains the sole executor), the page still executes nothing itself, and
+the per-skill name-copy button above is untouched — the name is the token
+that invokes *that* skill, and it needs no `ninja` around it.
+
+## Update (2026-08-21 — the copied name leads with the slash, too)
+
+The same chat-ready rule now applies to the per-skill copy button: one click
+behind the name puts **`/name`** on the clipboard — the skill's invocation
+token, slash included — so a paste into any agent chat invokes the skill
+directly; a terminal run simply drops the leading slash (the mirror of the
+cockpit-command rule above, applied to the smallest copy unit). The payload
+still renders from the card's `data-name` alone — the slash is added in the
+click handler, so the read-only, snapshot-only property of the original
+decision is untouched. The Manager UI (ADR-0019) labels its equivalent
+button `/Name` and copies the same token.
+
