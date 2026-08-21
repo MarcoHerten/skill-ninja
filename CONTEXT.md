@@ -48,6 +48,14 @@ _Avoid_: the CLI, npx skills (say skills.sh).
 The bulk pipeline (`/ninja ingest`): analyze a directory of candidates, cluster them, and report the proposed resolution; on explicit approval (`--apply`) store the winners with provenance. Read-only on the source directory and links nothing — storing, not installing. `add` remains the curated single-skill path.
 _Avoid_: bulk add, import (say ingest).
 
+**Manager UI**:
+The interactive, local-only web interface `/ninja ui` serves on localhost — it operates the engine directly (switching Availability, applying Profiles, editing Notes, exporting Chat-Prompts, removing External skills) instead of proposing commands. Runs beside the static status page, which remains the offline snapshot.
+_Avoid_: dashboard, cockpit, admin panel, status page (that is the static file).
+
+**Chat-Prompt**:
+The export of a skill as a self-contained prompt for a plain chatbot — role framing, the skill's body, a task placeholder — copied to the clipboard so a skill can be used without being installed anywhere.
+_Avoid_: copy prompt, prompt export.
+
 ### Where skills live — the tiers
 
 **Personal skill**:
@@ -55,7 +63,7 @@ A skill the user authored or received and Skill Ninja owns — stamped with `ver
 _Avoid_: own skill, custom skill.
 
 **External skill**:
-A skill installed and tracked by **skills.sh** (the installer), recorded in its project lockfile `skills-lock.json` (`source`, `computedHash`). Owned by skills.sh, not the user — Skill Ninja audits it but does not manage or re-link it.
+A skill installed and tracked by **skills.sh** (the installer), recorded in its project lockfile `skills-lock.json` (`source`, `computedHash`). Owned by skills.sh, not the user — Skill Ninja audits it, never manages or re-links it, and removes it only by delegating to skills.sh (`skills remove`) on the owner's explicit request.
 _Avoid_: third-party skill, npx skill (name the tier, not the mechanism).
 
 **Project skill**:
@@ -91,6 +99,10 @@ _Avoid_: setup, bundle, preset, workspace config.
 **Collection**:
 A named, personal filter over the inventory — a list of exact skill names or `prefix*` patterns living at the canonical store's root (`<store>/collections.json`), resolved live by the views (`cat @<name>`, `find @<name>`, the page filter) and the availability selectors. The owner's view, not data about the skill — and traveling with the store repo (ADR-0017).
 _Avoid_: tag, label, category (that is content taxonomy on the skill, ADR-0013), group.
+
+**Note**:
+The owner's free-text rationale attached to a stored skill — why it is relevant, for which projects. A `NOTE.md` beside the skill's `SKILL.md` in the canonical store, versioned and traveling with it like profiles and collections. The owner's words about a skill, never consumed by agents.
+_Avoid_: tag (that is a filter — see Collection), annotation, comment.
 
 ### The environment
 
