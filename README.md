@@ -27,8 +27,8 @@ The short version: **skills.sh installs skills. Skill Ninja looks after them.** 
 - **`/ninja init`** — looks at your machine: which agents are installed, where every skill lives — loose ones and plugin-bundled ones alike. No preparation needed — the config is created for you on first run. Also sets up your **skill store**, a plain, visible git repo at `~/skill-ninja-store` by default (your own name or path: `init --store <name|path>`).
 - **`/ninja status`** — the inventory on one screen: which agent can reach which skill, real copy or link, global or project, duplicates, broken links, versions, and where each skill came from — skills bundled inside agent plugins included, shown with the plugin they belong to.
 - **`/ninja cat`** — your catalog: browse skills grouped by category (each with its one-line description) or filter by a term. `cat assign` files an uncategorized skill. Categories live in the skill's own frontmatter, never in a hand-maintained list ([ADR-0013](./docs/adr/0013-category-stamps-and-catalog.md)) — and the status page groups by category too.
-- **`/ninja page`** — the same inventory as a website: one self-contained HTML file at `~/.skill-ninja/status.html`. No server, no external assets, no network. Since v1.3 it's a small cockpit: search, filters, and checkboxes that build a copyable `/ninja … --apply` command — ready to paste straight into your agent chat. The page itself never executes anything — the engine stays behind `--apply` ([ADR-0011](./docs/adr/0011-static-html-status-page.md)). Directly behind every skill name sits a `copy` button: one click puts the skill's name on your clipboard — the token to paste into any chat or terminal to invoke the skill there.
-- **`/ninja ui`** — the **Manager UI**: a local-only web interface that *operates* instead of proposing commands. Switch each skill's availability with a click (global active / on request only / off), apply or lift profiles per project, keep a personal note on why a skill matters, copy a skill three ways (name, raw `SKILL.md`, or a **Chat-Prompt** for any plain chatbot — no installation needed), and remove skills.sh-owned skills by delegation so the lockfile stays consistent. Every write shows the engine's dry-run plan first — the click is the `--apply` ([ADR-0019](./docs/adr/0019-manager-ui.md), [ADR-0020](./docs/adr/0020-external-removal.md)). Loopback-only, runs in the foreground, Ctrl-C stops it; the static `page` remains the offline snapshot.
+- **`/ninja page`** — the same inventory as a website: one self-contained HTML file at `~/.skill-ninja/status.html`. No server, no external assets, no network. Since v1.3 it's a small cockpit: search, filters, and checkboxes that build a copyable `/ninja … --apply` command — ready to paste straight into your agent chat. The page itself never executes anything — the engine stays behind `--apply` ([ADR-0011](./docs/adr/0011-static-html-status-page.md)). Directly behind every skill name sits a `copy` button: one click puts the skill's chat-ready invocation token on your clipboard — `/name`, slash included; a terminal run drops the slash.
+- **`/ninja ui`** — the **Manager UI**: a local-only web interface that *operates* instead of proposing commands. Switch each skill's availability with a click (global active / on request only / off), apply or lift profiles per project, keep a personal note on why a skill matters, copy a skill three ways (`/name`, raw `SKILL.md`, or a **Chat-Prompt** for any plain chatbot — no installation needed), and remove skills.sh-owned skills by delegation so the lockfile stays consistent. Every write shows the engine's dry-run plan first — the click is the `--apply` ([ADR-0019](./docs/adr/0019-manager-ui.md), [ADR-0020](./docs/adr/0020-external-removal.md)). Loopback-only, runs in the foreground, Ctrl-C stops it; the static `page` remains the offline snapshot.
 - **`/ninja doctor`** — finds broken links, duplicate spreads, and orphaned copies, and proposes a repair for each. Nothing is touched until you approve: re-run with `--apply` to execute the fixes you agreed to.
 - **`/ninja add`** — one skill that didn't come through skills.sh (from a friend, a download, or bare prompt text): safety check, diff against what you already have, origin + hash stamp, a human-readable `CHANGELOG.md`, and the install itself.
 - **`/ninja ingest`** — a whole messy directory at once: an export, a prompt library, a folder of near-duplicates. Everything gets classified, the variants clustered, and one winner per cluster proposed — with reasons. Divergent twins you decide yourself; the rest goes into the store in one commit. The source folder is never touched.
@@ -113,7 +113,26 @@ Prefer a browser? `/ninja page` writes the same view as a self-contained HTML fi
 ln -s ~/.skill-ninja/status.html ~/Desktop/skill-ninja-status.html
 ```
 
-### 3. Clean up: `doctor`
+### 3. Manage in the browser: `ui`
+
+```
+/ninja ui
+```
+
+opens the **Manager UI** in your browser — the interactive sibling of the status page. Click a skill to switch it between *global active / on request only / off*, apply or lift a profile per project, keep a personal note on why a skill matters, copy a skill as `/name`, raw `SKILL.md`, or a Chat-Prompt for any plain chatbot — and remove skills.sh-owned skills by delegation. Every write first shows the engine's dry-run plan; the click is the `--apply`.
+
+Two ways to start it:
+
+- **Through your agent**: `/ninja ui` — the agent runs the engine, relays the URL, and the browser opens on its own.
+- **From a terminal** (works from any checkout of this repo, v1.7+):
+
+```bash
+node skills/ninja/engine/cli.js ui
+```
+
+The server is **deliberately foreground**: it lives exactly as long as the process that started it — a browser tab alone shows nothing, and Ctrl-C in the starting terminal stops it. It binds to `127.0.0.1` only and loads no external assets; `--port <n>` picks a different port, `--no-open` skips opening the browser.
+
+### 4. Clean up: `doctor`
 
 ```
 /ninja doctor
@@ -121,7 +140,7 @@ ln -s ~/.skill-ninja/status.html ~/Desktop/skill-ninja-status.html
 
 Detects broken links, duplicate spreads, and orphaned copies — one proposed repair each. Everything waits for your approval: re-run with `--apply` to execute the fixes you agreed to.
 
-### 4. Turn on versioning (recommended, once)
+### 5. Turn on versioning (recommended, once)
 
 Every skill Skill Ninja stores is committed to the store repo. For off-machine backup and browsable history, create a **private** GitHub repo and wire it up:
 
@@ -133,7 +152,7 @@ That's the intended setup: **one visible repo, pushed to a private remote** — 
 
 Keep that repo private — personal skills often carry company context. No remote? Skill Ninja still commits locally and skips pushing silently.
 
-### 5. Day to day: one skill arrives → `add`
+### 6. Day to day: one skill arrives → `add`
 
 ```
 /ninja add <folder|file|zip|repo>
@@ -141,7 +160,7 @@ Keep that repo private — personal skills often carry company context. No remot
 
 The curated path for a single skill that didn't come through skills.sh: safety check, diff against any stored version, origin + content-hash stamp, linking into your agent roots, commit + push. Bare prompt text works too (`--prompt`), and `--from` records who sent it.
 
-### 6. A whole messy directory → `ingest`
+### 7. A whole messy directory → `ingest`
 
 ```
 /ninja ingest ~/Downloads/skills-export
@@ -149,7 +168,7 @@ The curated path for a single skill that didn't come through skills.sh: safety c
 
 The bulk path. The export that contains the same skill as a folder, a `.zip`, a `.skill`, *and* a `.skill.zip`. The prompt library that was never skills at all. The dry run classifies every item, clusters the variants, and reports the proposal: one winner per cluster with its reason, losers with content hashes, junk, a safety column, and side-by-sides for the divergent duplicates no rule can resolve. You walk the report and decide the conflicts; `--apply` stores the rest in one commit (pushed when a remote is wired). Needs-decision clusters are skipped, never auto-decided. The source directory is never modified, and nothing is auto-linked into your agents — keep your context lean and link deliberately via `add`.
 
-### 7. Something changed → `diff`
+### 8. Something changed → `diff`
 
 ```
 /ninja diff <name> <candidate>
@@ -169,6 +188,7 @@ The comparison runs over the skill body, so bookkeeping churn — stamps, hashes
 | "This skill triggers constantly but I want it on demand" | `/ninja manual <name>` (invocable by name, never auto-triggered) — or click it in the Manager UI |
 | "Get this out of my context window entirely" | `/ninja off <name>` (or `off --category "…"` in bulk) |
 | "My agents are drowning in auto-triggered skills" | `/ninja ui` → the bulk action moves every own active skill to "on request only", with a preview |
+| "Invoke one of my skills in a chat" | the `copy` button behind its name (`/name`) — page or Manager UI |
 | "I want to use a skill in a normal chatbot, without installing it" | `/ninja ui` → **Chat-Prompt** copy button behind the skill name |
 | "This repo needs my content-setup skills" | `/ninja profile save content <names…>`, then `profile apply content` in the repo |
 | "Show me Nils's skills as a bundle" | `/ninja collection save nils <names/prefixes…>`, then `cat @nils` |

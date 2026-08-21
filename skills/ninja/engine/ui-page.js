@@ -141,8 +141,10 @@ const MANAGER_JS = `
     );
   }
 
-  // ---- copy flavors (Name / SKILL.md / Chat-Prompt) ----
-  function copyName(btn, g) { copyToClipboard(g.name, function (ok) { flash(btn, ok); }); }
+  // ---- copy flavors (/Name / SKILL.md / Chat-Prompt) ----
+  // The name token leads with the slash (chat-ready): pasting it into an
+  // agent chat invokes the skill directly; a terminal run drops the slash.
+  function copyName(btn, g) { copyToClipboard("/" + g.name, function (ok) { flash(btn, ok); }); }
   function copyRaw(btn, g) {
     api("/api/skill/" + encodeURIComponent(g.name) + "/raw").then(function (data) {
       copyToClipboard(data.text, function (ok) { flash(btn, ok); });
@@ -175,12 +177,14 @@ const MANAGER_JS = `
   function copyButtons(g) {
     var frag = document.createDocumentFragment();
     var defs = [
-      ["Name", copyName], ["SKILL.md", copyRaw], ["Chat-Prompt", copyPrompt],
+      ["/Name", copyName], ["SKILL.md", copyRaw], ["Chat-Prompt", copyPrompt],
     ];
     defs.forEach(function (d) {
       var b = el("button", "copy-skill", d[0]);
       b.type = "button";
-      b.title = d[0] + " in die Zwischenablage kopieren";
+      b.title = d[0] === "/Name"
+        ? "Kopiert /" + g.name + " — direkt in einen Chat einfügen und der Skill wird aufgerufen"
+        : d[0] + " in die Zwischenablage kopieren";
       b.addEventListener("click", function (e) { e.preventDefault(); d[1](b, g); });
       frag.appendChild(b);
     });

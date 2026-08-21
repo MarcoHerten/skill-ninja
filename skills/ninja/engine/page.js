@@ -120,13 +120,15 @@ function renderSkill(group, store, collections) {
     : "";
 
   // The copy button sits directly behind the name (story #54, revised
-  // 2026-08-19): one click puts the skill's NAME on the clipboard — the token
-  // you paste into a chat or terminal to invoke the skill. It renders from the
-  // cached data alone; no file read, no payload to embed.
+  // 2026-08-19; slash-prefixed 2026-08-21): one click puts the skill's
+  // **chat-ready invocation token** on the clipboard — `/name`, ready to
+  // paste into any agent chat to invoke the skill (a terminal run drops the
+  // leading slash). It renders from the cached data alone; no file read, no
+  // payload to embed.
   const copyButton =
     `<button type="button" class="copy-skill" data-label="copy" ` +
-    `aria-label="Copy skill name ${escapeHtml(group.name)}" ` +
-    `title="Copy the skill name to the clipboard">copy</button>`;
+    `aria-label="Copy /${escapeHtml(group.name)}" ` +
+    `title="Copy /name — paste into any chat to invoke the skill (a terminal run drops the slash)">copy</button>`;
 
   const locations = group.occurrences.map((occ) => {
     const link =
@@ -282,12 +284,15 @@ const COCKPIT_JS = `
     }
   });
 
-  // Per-skill name copy (story #54, revised 2026-08-19): the button lives
-  // inside <summary>, so its click must not expand the card — cancelling the
-  // default action on the same (bubbled) event, the mirror of the pick
-  // checkbox workaround above. The payload is the card's data-name attribute;
-  // clipboard only (no network), with an execCommand fallback for engines
-  // without the async API. The label swap is the feedback.
+  // Per-skill name copy (story #54, revised 2026-08-19, slash-prefixed
+  // 2026-08-21): the button lives inside <summary>, so its click must not
+  // expand the card — cancelling the default action on the same (bubbled)
+  // event, the mirror of the pick checkbox workaround above. The payload is
+  // the card's data-name with a LEADING SLASH — chat-ready, the same rule
+  // the cockpit command got 2026-08-19 evening: a paste into the agent chat
+  // invokes the skill directly; a terminal run drops the slash. Clipboard
+  // only (no network), with an execCommand fallback for engines without the
+  // async API. The label swap is the feedback.
   function fallbackCopy(text) {
     var ta = document.createElement("textarea");
     ta.value = text;
@@ -318,7 +323,7 @@ const COCKPIT_JS = `
       var card = btn.closest("details.skill");
       var name = card ? card.getAttribute("data-name") : "";
       if (!name) return;
-      copyToClipboard(name, function (ok) {
+      copyToClipboard("/" + name, function (ok) {
         btn.textContent = ok ? "copied ✓" : "copy failed";
         btn.classList.toggle("ok", ok);
         window.setTimeout(function () {

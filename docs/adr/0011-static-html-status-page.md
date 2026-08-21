@@ -151,3 +151,15 @@ remains the sole executor), the page still executes nothing itself, and
 the per-skill name-copy button above is untouched — the name is the token
 that invokes *that* skill, and it needs no `ninja` around it.
 
+## Update (2026-08-21 — the copied name leads with the slash, too)
+
+The same chat-ready rule now applies to the per-skill copy button: one click
+behind the name puts **`/name`** on the clipboard — the skill's invocation
+token, slash included — so a paste into any agent chat invokes the skill
+directly; a terminal run simply drops the leading slash (the mirror of the
+cockpit-command rule above, applied to the smallest copy unit). The payload
+still renders from the card's `data-name` alone — the slash is added in the
+click handler, so the read-only, snapshot-only property of the original
+decision is untouched. The Manager UI (ADR-0019) labels its equivalent
+button `/Name` and copies the same token.
+

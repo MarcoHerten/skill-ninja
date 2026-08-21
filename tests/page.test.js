@@ -366,7 +366,7 @@ test("page is regenerated on every call (overwritten with fresh inventory data)"
 // file read), no SKILL.md body is embedded anywhere, and the cockpit script
 // must cancel the card toggle on button clicks (the summary-click problem,
 // pinned string-level like the checkbox workaround above).
-test("page puts a copy button behind each skill name that copies the name", async () => {
+test("page puts a copy button behind each skill name that copies the slash-prefixed name", async () => {
   const sb = await createSandbox();
   try {
     await plantSkill(sb.home, ".claude/skills/aphrodite", {
@@ -388,12 +388,16 @@ test("page puts a copy button behind each skill name that copies the name", asyn
     assert.ok(!html.includes("Aphrodite body"), `skill bodies are not embedded`);
     assert.ok(!html.includes("skill-md"), `no hidden payload markup`);
 
-    // The wiring: the script hands the card's name to the clipboard API and
-    // cancels the summary toggle — same preventDefault pin as the pick
-    // checkbox, or every copy click would also expand the card.
+    // The wiring: the script hands the card's slash-prefixed name — the
+    // chat-ready invocation token — to the clipboard API and cancels the
+    // summary toggle, same preventDefault pin as the pick checkbox, or every
+    // copy click would also expand the card.
     const script = html.slice(html.indexOf("<script>"), html.indexOf("</script>"));
     assert.ok(script.includes("button.copy-skill"), `the script must wire the copy buttons`);
-    assert.ok(script.includes("copyToClipboard(name"), `copying must use the card's name`);
+    assert.ok(
+      script.includes('copyToClipboard("/" + name'),
+      `copying must use the slash-prefixed name (/name, chat-ready)`,
+    );
     assert.ok(script.includes("e.preventDefault();"), `a copy click must not toggle the card`);
     assert.ok(script.includes("navigator.clipboard"), `copying uses the clipboard API`);
   } finally {
@@ -441,7 +445,7 @@ test("page renders the copy button from the snapshot alone (a vanished SKILL.md 
     const html = await readPage(sb.home);
     assert.ok(html.includes("<h3>gone"), `the card still renders from the snapshot`);
     assert.ok(
-      html.includes('aria-label="Copy skill name gone"'),
+      html.includes('aria-label="Copy /gone"'),
       `the copy button no longer depends on a readable SKILL.md`,
     );
   } finally {
