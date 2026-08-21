@@ -30,6 +30,7 @@ import { availabilityCommand } from "./availability.js";
 import { findCommand } from "./find.js";
 import { profileCommand } from "./profile.js";
 import { collectionCommand } from "./collection.js";
+import { uiCommand } from "./ui.js";
 
 // The full command surface the skill exposes. Every command is wired to a
 // handler; COMMANDS also drives `help` so the CLI and SKILL.md agree on the
@@ -50,6 +51,7 @@ const COMMANDS = {
   find: "Search the cached inventory by skill name, description, or category.",
   profile: "Manage skill profiles: list | save | forget | apply | lift.",
   collection: "Manage personal collections (filters that travel with the store): list | save | forget — use with cat @<name>.",
+  ui: "Start the Manager UI: a local-only web interface that operates the engine directly (availability, profiles, notes, copy, removal).",
   config: "Show Skill Ninja's configuration (try: config show).",
 };
 
@@ -350,6 +352,11 @@ async function dispatch(argv) {
   }
   if (command === "collection") {
     return collectionCommand(rest);
+  }
+  if (command === "ui") {
+    // Never resolves while the server runs — the process stays alive until
+    // interrupted (ADR-0019: foreground, dies with the terminal).
+    return uiCommand(rest);
   }
   if (command in COMMANDS) {
     // Known command not yet wired in this build.
